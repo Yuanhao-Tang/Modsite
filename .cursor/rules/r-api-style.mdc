@@ -1,0 +1,16 @@
+---
+description: Naming and API conventions for R package source files
+globs: R/*.R
+alwaysApply: false
+---
+
+# R API Style
+
+- Use clear, professional `snake_case` for exported functions.
+- Avoid casual, vague, or inconsistent names.
+- Prefer action-oriented names such as `fit_*`, `estimate_*`, `aggregate_*`, `plot_*`, `save_*`, `validate_*`, `check_*`.
+- Export only user-facing functions; keep helpers internal.
+- Keep argument names explicit and consistent across related functions.
+- Prefer targeted `@importFrom` or explicit namespaces over broad imports.
+- Avoid ambiguous bare calls to conflicted functions such as `rename`, `first`, `last`, `union`, `intersect`, and `setdiff`.
+- When renaming functions, update code, docs, tests, and exports in the same change.

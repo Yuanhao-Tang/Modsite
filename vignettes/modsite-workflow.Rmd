@@ -1,0 +1,306 @@
+---
+title: "modsite Workflow: End-to-End RNA Modification Site Analysis"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{modsite Workflow: End-to-End RNA Modification Site Analysis}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  eval     = FALSE
+)
+```
+
+## Overview
+
+`modsite` provides a complete pipeline for analysing RNA modification sites
+detected by methods such as PUMseq, GLORIseq, and LIMEseq. The workflow
+consists of six stages:
+
+1. **Preprocessing** – merge per-sample pileup files, filter low-quality sites,
+   annotate with genomic regions and known modification databases.
+2. **Reporting** – compute per-sample summary statistics and assess sequencing
+   saturation.
+3. **Differential analysis (simple)** – two-group site comparison using t-test
+   or Wilcoxon rank-sum test.
+4. **Differential analysis (GLMM)** – Beta-Binomial GLMM for multi-covariate
+   designs with optional dispersion stabilisation.
+5. **Feature aggregation** – collapse site-level p-values to gene/transcript
+   level using the Cauchy Combination Test (CCT).
+6. **Visualisation** – metagene profiles and sequence logos.
+
+```{r load}
+library(modsite)
+```
+
+---
+
+## Stage 1 – Preprocessing
+
+### 1.1 Merge per-sample pileup files
+
+Each sample produces a tab-separated pileup file with columns `chrom`, `pos`,
+`ref`, `depth`, and nucleotide count columns (`A`, `C`, `G`, `T`).  Pass all
+file paths along with their experimental conditions to `new_merger()`, then
+call `merge_samples()` to produce the merged wide-format table.
+
+```{r merger}
+sample_files <- c(
+  "data/ctrl1.tsv", "data/ctrl2.tsv", "data/ctrl3.tsv",
+  "data/trt1.tsv",  "data/trt2.tsv",  "data/trt3.tsv"
+)
+conditions <- c("ctrl", "ctrl", "ctrl", "trt", "trt", "trt")
+
+m <- new_merger(
+  sample_files        = sample_files,
+  condition           = conditions,
+  modification_method = "PUMseq",
+  min_modification_rate = 0.05,
+  min_depth           = 10L
+)
+
+merged_df <- merge_samples(m)
+dim(merged_df)
+head(merged_df[, 1:6])
+```
+
+### 1.2 Remove low-quality samples
+
+Drop samples with a high fraction of missing sites:
+
+```{r filter-samples}
+filter_samples(m, max_missing_rate = 0.4)
+merger_summary(m)$per_sample |> lapply(\(x) x$missing_pct)
+```
+
+### 1.3 Annotate genomic regions
+
+Use a GTF file to assign each site to a genomic region (CDS, UTR5, UTR3,
+intron, etc.) and gene metadata:
+
+```{r annotate-genome}
+annotator <- new_genomic_annotator(
+  gtf_file   = "ref/gencode.v47.annotation.gtf",
+  genome_ver = "GRCh38"
+)
+merged_ann <- annotate_genomic_regions(annotator, merged_df)
+table(merged_ann$genomic_region)
+```
+
+### 1.4 Cross-reference known modification databases
+
+Match sites against a known modification BED/TSV file (e.g. m6A atlas):
+
+```{r annotate-mods}
+mod_ann <- new_mod_annotator(
+  mod_file  = "ref/m6A_atlas.bed",
+  mod_type  = "m6A",
+  tolerance = 2L
+)
+merged_ann <- annotate_known_mods(mod_ann, merged_ann)
+table(merged_ann$is_known_mod)
+```
+
+### 1.5 Save the preprocessed table
+
+```{r save-merged}
+save_merged(m, "results/merged_annotated.tsv")
+```
+
+---
+
+## Stage 2 – Reporting
+
+### 2.1 Per-sample summary statistics
+
+```{r sample-stats}
+sample_cols <- grep("^depth_", colnames(merged_ann), invert = TRUE,
+                    value = TRUE) |>
+  setdiff(c("chrom", "pos", "ref", "strand", "motif",
+             "genomic_region", "gene_id", "gene_name", "gene_type",
+             "is_known_mod"))
+
+ss <- new_sample_stats(merged_ann, sample_cols = sample_cols)
+
+# Overall per-sample summary
+sample_summary_stats(ss)
+
+# Per-chromosome breakdown
+head(chromosome_stats(ss))
+
+# Per-genomic-region breakdown
+genomic_region_stats(ss)
+
+# Modification rate distribution
+modification_rate_bin_stats(ss)
+```
+
+### 2.2 Sequencing saturation analysis
+
+Requires a BAM file and Bioconductor packages `Rsamtools` and
+`GenomicAlignments` (listed in `Suggests`):
+
+```{r saturation}
+az  <- new_saturation_analyzer("data/ctrl1.bam", min_depth = 10L,
+                               min_mod_rate = 0.05, test_mode = FALSE)
+run_saturation_analysis(az, random_seed = 42L,
+                        output_file = "results/saturation_ctrl1.png")
+```
+
+---
+
+## Stage 3 – Differential analysis (simple two-group test)
+
+### 3.1 Construct the analyzer
+
+```{r diff-sites-new}
+ctrl_cols <- paste0("ctrl", 1:3)
+trt_cols  <- paste0("trt",  1:3)
+
+ds <- new_diff_sites(
+  annotated_df    = merged_ann,
+  group1_samples  = trt_cols,
+  group2_samples  = ctrl_cols,
+  group1_name     = "Treatment",
+  group2_name     = "Control",
+  test_method     = "t-test",
+  p_value_threshold = 0.05,
+  min_abs_log2fc  = 1.0
+)
+```
+
+### 3.2 Run the test and inspect results
+
+```{r diff-sites-run}
+results <- run_diff_sites(ds)
+
+# Top significant sites
+sig <- results[results$significant == TRUE, ]
+head(sig[order(sig$adj.p.value), c("chrom","pos","ref",
+                                   "Treatment_mean","Control_mean",
+                                   "log2fc","adj.p.value")])
+```
+
+### 3.3 Save results
+
+```{r diff-sites-save}
+save_diff_results(results, "results/diff_sites_ttest.tsv")
+save_diff_results(results, "results/all_sites_ttest.tsv", include_all = TRUE)
+```
+
+---
+
+## Stage 4 – Differential analysis (Beta-Binomial GLMM)
+
+The GLMM approach supports multiple fixed effects, random effects, and
+optional dispersion stabilisation via a weighted-least-squares phi trend.
+It requires the `glmmTMB` and `broom.mixed` packages (listed in `Suggests`).
+
+### 4.1 Attach sample metadata to the merger
+
+```{r glmm-meta}
+m$sample_meta <- data.frame(
+  sample_id = m$sample_names,
+  group     = factor(conditions),
+  stringsAsFactors = FALSE
+)
+```
+
+### 4.2 (Optional) Estimate dispersion trend
+
+Stabilise per-site over-dispersion by fitting a WLS regression of
+site-level dispersion estimates onto site covariates:
+
+```{r phi-trend}
+estimate_phi_trend(m, phi_vars = "genomic_region", verbose = TRUE)
+str(m$phi_trend)
+```
+
+### 4.3 Run the GLMM
+
+```{r glmm-run}
+glmm_out <- run_glmm(
+  merger            = m,
+  fixed             = "group",
+  primary_term      = "group",
+  min_depth_site    = 5L,
+  min_samples_per_site = 4L,
+  on_error          = "na",
+  phi               = TRUE       # use dispersion trend from step 4.2
+)
+
+# Primary-term results (one row per site)
+ptb <- glmm_out$primary_term_backfill
+head(ptb[order(ptb$group_adj_p.value), ])
+
+# Convergence summary
+cat("Sites fitted OK:", sum(ptb$fit_ok), "/", nrow(ptb), "\n")
+```
+
+---
+
+## Stage 5 – Feature-level aggregation (CCT)
+
+Collapse site-level p-values to the gene level using the Cauchy Combination
+Test:
+
+```{r cct}
+gene_res <- aggregate_feature_cct(
+  site_df     = glmm_out$primary_term_backfill,
+  feature_col = "gene_id",
+  p_col       = "group_p.value",
+  effect_col  = "group_est_logodds",
+  weight_col  = NULL,
+  min_sites   = 2L,
+  adj_method  = "BH"
+)
+
+# Top differentially modified genes
+head(gene_res[order(gene_res$cct_adj.p.value),
+              c("gene_id","n_sites_used","cct_p.value",
+                "cct_adj.p.value","mean_effect")])
+```
+
+---
+
+## Stage 6 – Visualisation
+
+### 6.1 Metagene profile
+
+Requires a GTF/GFF file and a merged site table:
+
+```{r metagene}
+mg <- new_metagene_analyzer(
+  gtf_file    = "ref/gencode.v47.annotation.gtf",
+  sample_cols = trt_cols,
+  n_bins      = 50L
+)
+
+profile <- calc_metagene_profile(mg, merged_ann)
+plot_metagene(profile, title = "m6A metagene – PUMseq")
+```
+
+### 6.2 Sequence logo
+
+Visualise the sequence context around modification sites:
+
+```{r seqlogo}
+# Extract +/- 5 nt context sequences from the annotated table
+sequences <- merged_ann$motif   # character vector of context sequences
+
+ggseqlogo(sequences, method = "prob") +
+  ggplot2::theme_classic() +
+  ggplot2::ggtitle("Sequence context around modification sites")
+```
+
+---
+
+## Session information
+
+```{r session, eval = TRUE}
+utils::sessionInfo()
+```

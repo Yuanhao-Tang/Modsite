@@ -1,0 +1,7 @@
+^\.cursor$
+^CURSOR_START_PROMPT\.md$
+^LEGACY_SOURCES\.md$
+^.*\.Rproj$
+^\.Rproj\.user$
+^\.\.Rcheck$
+^modsite\.Rcheck$

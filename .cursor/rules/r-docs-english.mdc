@@ -1,0 +1,13 @@
+---
+description: English-only rules for comments, docs, and user-facing text
+globs: {R/*.R,README.md,INSTALL.md,MIGRATION_NOTES.md,tests/**/*,vignettes/**/*}
+alwaysApply: false
+---
+
+# English Only
+
+- Write all comments, roxygen docs, messages, warnings, errors, README text, INSTALL notes, migration notes, tests, and vignettes in English.
+- Do not leave mixed Chinese and English text in the formal package.
+- Keep terminology consistent across code and docs.
+- When translating or refactoring, preserve the statistical meaning of the original implementation.
+- If function names change, update all examples and documentation in the same phase.

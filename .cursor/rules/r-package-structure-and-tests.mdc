@@ -1,0 +1,14 @@
+---
+description: Standard R package structure, testing, and release-readiness rules
+alwaysApply: true
+---
+
+# Package Structure And Tests
+
+- Target a standard R package layout: `DESCRIPTION`, `NAMESPACE`, `R/`, `man/`, `tests/testthat/`, `inst/`, and `vignettes/` when needed.
+- Keep `DESCRIPTION` imports accurate and synchronized with actual code usage.
+- Keep `NAMESPACE` synchronized with exports and imports.
+- Add or update `testthat` tests for all non-trivial exported functions.
+- Prefer small deterministic fixtures and focused unit tests.
+- Add package-level documentation, examples, and CI-ready structure when appropriate.
+- Prefer standard tools and workflows such as `roxygen2`, `testthat`, `devtools`, and `usethis`.

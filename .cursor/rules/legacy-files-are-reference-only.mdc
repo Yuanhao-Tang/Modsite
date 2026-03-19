@@ -1,0 +1,13 @@
+---
+description: Treat current files as source material, not authoritative final package design
+alwaysApply: true
+---
+
+# Legacy Files Are Reference Material
+
+- Existing files in this repository are source material for the rebuild, not the final package design.
+- Preserve validated statistical intent and domain logic, but do not preserve legacy naming, file layout, comments, or ad hoc structure by default.
+- Do not copy old files verbatim into the formal package unless explicitly requested.
+- Freely reorganize code into better package modules, as long as behavior is preserved or migration notes are provided.
+- When reusing legacy code, first identify what is core logic versus what is temporary, exploratory, or redundant.
+- If there is a conflict between legacy layout and standard package practice, prefer standard package practice.

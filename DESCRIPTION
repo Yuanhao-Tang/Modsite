@@ -1,0 +1,52 @@
+Package: modsite
+Type: Package
+Title: RNA Modification Site Analysis Toolkit
+Version: 0.1.0
+Authors@R: person("Tang", "YH", role = c("aut", "cre"),
+    email = "dumplinghao888@gmail.com")
+Author: Tang YH [aut, cre]
+Maintainer: Tang YH <dumplinghao888@gmail.com>
+Description: A production-quality toolkit for RNA modification site analysis.
+    Provides multi-sample merging and quality filtering, genomic region annotation
+    via GTF/GFF, cross-referencing against known modification databases,
+    sample-level summary statistics, sequencing saturation analysis,
+    site-level differential modification analysis (t-test, Wilcoxon, and
+    Beta-Binomial GLMM with optional dispersion trend estimation),
+    feature-level Cauchy Combination Test (CCT) aggregation for gene and
+    transcript summaries, metagene profiling across transcript regions,
+    and sequence logo visualization.
+License: GPL-3
+Encoding: UTF-8
+Depends: R (>= 4.1.0)
+Imports:
+    data.table,
+    dplyr,
+    tidyr,
+    stats,
+    utils,
+    tools,
+    graphics,
+    AnnotationDbi,
+    GenomicFeatures,
+    GenomicRanges,
+    GenomeInfoDb,
+    IRanges,
+    S4Vectors,
+    rtracklayer,
+    ggplot2,
+    grDevices
+Suggests:
+    grid,
+    rlang,
+    future,
+    furrr,
+    glmmTMB,
+    broom.mixed,
+    openxlsx,
+    Rsamtools,
+    GenomicAlignments,
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown
+VignetteBuilder: knitr
+RoxygenNote: 7.3.3

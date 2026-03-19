@@ -1,0 +1,16 @@
+---
+description: Core standards for rebuilding this codebase as a formal R package
+alwaysApply: true
+---
+
+# Formal R Package Rebuild
+
+- Rebuild this project as a production-quality R package, not as an exploratory script collection.
+- Use English only for comments, messages, warnings, errors, docs, examples, and vignettes.
+- Prefer standard R package conventions over legacy project-specific patterns.
+- Keep the package installable and internally consistent after each meaningful change.
+- Use flat `R/` source files as the formal package layout.
+- Use `roxygen2` comments for exported functions and package documentation.
+- Treat `man/` as generated output unless explicitly asked to edit `.Rd` files by hand.
+- Before major refactors, propose a file map and a function rename map.
+- Flag all breaking API changes clearly.
