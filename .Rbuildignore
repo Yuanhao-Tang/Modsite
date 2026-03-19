@@ -5,3 +5,4 @@
 ^\.Rproj\.user$
 ^\.\.Rcheck$
 ^modsite\.Rcheck$
+^README\.Rmd$

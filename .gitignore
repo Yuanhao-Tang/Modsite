@@ -6,3 +6,4 @@
 ..Rcheck/
 modsite.Rcheck/
 *.tar.gz
+README.html
