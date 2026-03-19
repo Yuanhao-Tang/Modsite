@@ -100,10 +100,8 @@ Some modules require additional packages listed in `Suggests`:
 
 ## Citation
 
-If you use `modsite` in academic work, please cite the repository and
-the underlying methods where appropriate (CCT; Beta-Binomial GLMM).
+
 
 ## License
 
-GPL-3. In short: you may use/modify/redistribute the code, but
-redistributed derivatives must remain GPL-3 and provide source.
+
