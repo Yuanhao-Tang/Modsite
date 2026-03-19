@@ -1,11 +1,19 @@
 
 # modsite
 
-RNA modification site analysis toolkit: multi-sample merging and quality
-filtering, genomic region and known-mod annotation, sample-level
-statistics, sequencing saturation analysis, site-level differential
-analysis (t-test/Wilcoxon/GLMM), feature-level CCT aggregation, metagene
-profiling, and sequence logo visualisation.
+`modsite` is an R package for end-to-end analysis of RNA modification
+sites detected by methods such as PUMseq, GLORIseq, and LIMEseq.
+
+It supports:
+
+- Multi-sample merging and filtering of per-sample site/pileup tables
+- Genomic region annotation from GTF/GFF and cross-referencing known
+  modification databases
+- Sample-level summary statistics and sequencing saturation analysis
+- Site-level differential analysis (t-test, Wilcoxon) and Beta-Binomial
+  GLMM
+- Feature-level aggregation via the Cauchy Combination Test (CCT)
+- Metagene profiling and sequence logo visualisation
 
 ## Installation
 
@@ -14,16 +22,17 @@ profiling, and sequence logo visualisation.
 remotes::install_github("Yuanhao-Tang/Modsite")
 ```
 
-## Quick start
+## Quick start (30 seconds)
 
-The recommended end-to-end workflow is documented in the vignette
-`vignettes/modsite-workflow.Rmd`. Below is a minimal scaffold that
-mirrors the main stages.
+For a full, end-to-end workflow, see `vignettes/modsite-workflow.Rmd`.
+
+Below is a minimal, high-level scaffold showing the main entry points.
+The code chunks are not executed on GitHub.
 
 ``` r
 library(modsite)
 
-# 1) Merge and filter
+# 1) Merge and filter per-sample site tables
 sample_files <- c("data/ctrl1.tsv", "data/ctrl2.tsv", "data/ctrl3.tsv",
                   "data/trt1.tsv",  "data/trt2.tsv",  "data/trt3.tsv")
 conditions   <- c("ctrl","ctrl","ctrl","trt","trt","trt")
@@ -38,7 +47,7 @@ m <- new_merger(
 merged_df <- merge_samples(m)
 filter_samples(m, max_missing_rate = 0.4)
 
-# 2) Annotate genomic regions and known modification databases
+# 2) Annotate genomic regions (GTF) and known modification databases (BED/TSV)
 annotator <- new_genomic_annotator(
   gtf_file   = "ref/gencode.v47.annotation.gtf",
   genome_ver = "GRCh38"
@@ -52,15 +61,7 @@ mod_ann <- new_mod_annotator(
 )
 merged_ann <- annotate_known_mods(mod_ann, merged_ann)
 
-# 3) Reporting: per-sample statistics
-sample_cols <- grep("^depth_", colnames(merged_ann), invert = TRUE, value = TRUE) |>
-  setdiff(c("chrom", "pos", "ref", "strand", "motif",
-            "genomic_region", "gene_id", "gene_name", "gene_type",
-            "is_known_mod"))
-ss <- new_sample_stats(merged_ann, sample_cols = sample_cols)
-sample_summary_stats(ss)
-
-# 4) Differential analysis (simple)
+# 3) Differential analysis (simple two-group test)
 ds <- new_diff_sites(
   annotated_df      = merged_ann,
   group1_samples    = paste0("trt",  1:3),
@@ -73,12 +74,36 @@ ds <- new_diff_sites(
 )
 site_res <- run_diff_sites(ds)
 
-# 5) Feature-level aggregation (CCT) (typically applied to GLMM output)
+# 4) Feature-level aggregation (CCT) (typically applied to GLMM output)
 # gene_res <- aggregate_feature_cct(site_df = glmm_out$primary_term_backfill,
 #                                  feature_col = "gene_id",
 #                                  p_col = "group_p.value")
 ```
 
+## Input data
+
+`merge_samples()` expects each per-sample input file to be a
+tab-separated table with at least:
+
+- `chrom`, `pos`, `ref`, `depth`
+- nucleotide counts (`A`, `C`, `G`, `T`)
+
+See the vignette for recommended naming conventions and downstream
+column expectations.
+
+## Optional dependencies
+
+Some modules require additional packages listed in `Suggests`:
+
+- GLMM differential analysis: `glmmTMB`, `broom.mixed`
+- Saturation analysis from BAM: `Rsamtools`, `GenomicAlignments`
+
+## Citation
+
+If you use `modsite` in academic work, please cite the repository and
+the underlying methods where appropriate (CCT; Beta-Binomial GLMM).
+
 ## License
 
-GPL-3
+GPL-3. In short: you may use/modify/redistribute the code, but
+redistributed derivatives must remain GPL-3 and provide source.
