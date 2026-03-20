@@ -4,12 +4,6 @@
 # and is well-suited for aggregating per-site differential modification results
 # to the gene or transcript level.
 #
-# Reference:
-#   Liu, Y. & Xie, J. (2020). Cauchy Combination Test: A Powerful Test
-#   With Analytic p-Value Calculation Under Arbitrary Dependency Structures.
-#   J. Am. Stat. Assoc. 115:529, 393-402.
-
-#' @importFrom stats median p.adjust
 NULL
 
 
