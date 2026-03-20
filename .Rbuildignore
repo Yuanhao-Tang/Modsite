@@ -1,4 +1,5 @@
 ^\.cursor$
+^\.github$
 ^CURSOR_START_PROMPT\.md$
 ^LEGACY_SOURCES\.md$
 ^.*\.Rproj$

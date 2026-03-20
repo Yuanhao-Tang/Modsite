@@ -55,9 +55,7 @@ annotator <- new_genomic_annotator(
 merged_ann <- annotate_genomic_regions(annotator, merged_df)
 
 mod_ann <- new_mod_annotator(
-  mod_file  = "ref/m6A_atlas.bed",
-  mod_type  = "m6A",
-  tolerance = 2L
+  mod_file = "ref/RMBase_v3_human.csv"
 )
 merged_ann <- annotate_known_mods(mod_ann, merged_ann)
 

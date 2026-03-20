@@ -44,9 +44,13 @@ list_fonts <- function(verbose = TRUE) {
 .get_font <- function(font) {
   font_base <- getOption("MODSITE_FONT_BASE")
   if (is.null(font_base)) {
-    font_base <- system.file("extdata", package = "modsite")
-    options(MODSITE_FONT_BASE = font_base)
+    # Backward compatibility for older documentation and user sessions.
+    font_base <- getOption("GGSEQLOGO_FONT_BASE")
   }
+  if (is.null(font_base)) {
+    font_base <- system.file("extdata", package = "modsite")
+  }
+  options(MODSITE_FONT_BASE = font_base)
 
   font         <- match.arg(tolower(font), list_fonts(verbose = FALSE))
   font_file    <- paste0(font, ".font")

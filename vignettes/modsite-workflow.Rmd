@@ -93,13 +93,11 @@ table(merged_ann$genomic_region)
 
 ### 1.4 Cross-reference known modification databases
 
-Match sites against a known modification BED/TSV file (e.g. m6A atlas):
+Match sites against a known modification CSV file (e.g. RMBase export):
 
 ```{r annotate-mods}
 mod_ann <- new_mod_annotator(
-  mod_file  = "ref/m6A_atlas.bed",
-  mod_type  = "m6A",
-  tolerance = 2L
+  mod_file = "ref/RMBase_v3_human.csv"
 )
 merged_ann <- annotate_known_mods(mod_ann, merged_ann)
 table(merged_ann$is_known_mod)

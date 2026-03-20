@@ -36,9 +36,12 @@
 #'
 #' @section Package options:
 #' \describe{
-#'   \item{`GGSEQLOGO_FONT_BASE`}{Path to the directory containing bundled
-#'     ggseqlogo font files. Set automatically on first use; override only if
-#'     you need a custom font directory.}
+#'   \item{`MODSITE_FONT_BASE`}{Path to the directory containing bundled
+#'     sequence-logo font files. Set automatically on first use; override only
+#'     if you need a custom font directory.}
+#'   \item{`GGSEQLOGO_FONT_BASE`}{Legacy alias for `MODSITE_FONT_BASE`,
+#'     retained for backward compatibility. New code should prefer
+#'     `MODSITE_FONT_BASE`.}
 #' }
 #'
 #' @keywords internal
