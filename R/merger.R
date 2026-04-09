@@ -73,7 +73,7 @@ new_merger <- function(
     group_missing_threshold = 0.5,
     keep_all_zero_rows    = FALSE,
     min_group_mean_rate   = 0.05,
-    group_filter_strategy = "any",
+    group_filter_strategy = "all",
     custom_calc_func      = NULL
 ) {
   # Default condition: all samples in one group
@@ -199,13 +199,16 @@ merge_samples <- function(merger) {
 #' @param auto_merge If `TRUE` (default) and `merger$merged_data` is `NULL`,
 #'   [merge_samples()] is called automatically before filtering.
 #' @return The (invisibly modified) `merger` object with samples removed from
-#'   all relevant fields.
+#'   all relevant fields. Use `merger$merged_data` to access the filtered
+#'   merged table after this call.
 #'
 #' @examples
 #' \dontrun{
 #' m <- new_merger(sample_files = files, condition = groups,
 #'                 modification_method = "PUMseq")
+#' merge_samples(m)
 #' filter_samples(m, max_missing_rate = 0.4)
+#' filtered_df <- m$merged_data
 #' }
 #'
 #' @export
@@ -490,38 +493,62 @@ merger_summary <- function(merger) {
 }
 
 
+#' Return the first non-missing value from a vector
+#' @keywords internal
+.first_non_na <- function(x) {
+  idx <- which(!is.na(x))[1L]
+  if (is.na(idx)) x[NA_integer_] else x[idx]
+}
+
+
+#' Combine site metadata across processed sample tables
+#' @keywords internal
+.combine_site_metadata <- function(sample_tables) {
+  meta_tables <- lapply(seq_along(sample_tables), function(i) {
+    dt <- data.table::as.data.table(
+      sample_tables[[i]][, .basic_cols(sample_tables[[i]]), drop = FALSE]
+    )
+    dt[, source_order := i]
+    dt
+  })
+
+  meta_dt   <- data.table::rbindlist(meta_tables, use.names = TRUE, fill = TRUE)
+  meta_cols <- setdiff(colnames(meta_dt), c("site_id", "source_order"))
+
+  meta_dt[, lapply(.SD, .first_non_na), by = "site_id", .SDcols = meta_cols]
+}
+
+
 #' Outer-join all samples incrementally
 #' @keywords internal
 .merge_incrementally <- function(merger) {
-  n       <- length(merger$sample_files)
-  merged  <- NULL
+  n             <- length(merger$sample_files)
+  sample_tables <- vector("list", n)
 
   for (i in seq_len(n)) {
     message(sprintf("[%d/%d] Loading sample: %s", i, n, merger$sample_names[i]))
-    cur <- .process_one_sample(merger, merger$sample_files[i], merger$sample_names[i])
-
-    if (is.null(merged)) {
-      merged <- cur
-      next
-    }
-
-    merged <- merge(merged, cur, by = "site_id", all = TRUE, suffixes = c("", "_new"))
-
-    # Coalesce coordinate columns that appear in both tables after the join
-    for (col in c("chrom", "pos", "ref", "strand", "motif")) {
-      new_col <- paste0(col, "_new")
-      if (new_col %in% colnames(merged)) {
-        if (col %in% colnames(merged)) {
-          merged[[col]] <- ifelse(is.na(merged[[col]]), merged[[new_col]], merged[[col]])
-        } else {
-          merged[[col]] <- merged[[new_col]]
-        }
-        merged[[new_col]] <- NULL
-      }
-    }
+    sample_tables[[i]] <- .process_one_sample(
+      merger,
+      merger$sample_files[i],
+      merger$sample_names[i]
+    )
   }
 
-  if (is.null(merged)) stop("No sample data found.", call. = FALSE)
+  if (length(sample_tables) == 0L) stop("No sample data found.", call. = FALSE)
+
+  merged <- .combine_site_metadata(sample_tables)
+
+  for (i in seq_len(n)) {
+    cur        <- sample_tables[[i]]
+    sample_col <- merger$sample_names[i]
+    depth_col  <- paste0("depth_", sample_col)
+    idx        <- match(merged$site_id, cur$site_id)
+
+    merged[[sample_col]] <- cur[[sample_col]][idx]
+    merged[[depth_col]]  <- cur[[depth_col]][idx]
+  }
+
+  merged <- as.data.frame(merged, stringsAsFactors = FALSE)
   message(sprintf("Merge complete: %s raw sites.", .fmt_n(nrow(merged))))
   merged
 }

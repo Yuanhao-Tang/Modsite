@@ -118,46 +118,55 @@ extract_site_stats <- function(analyzer) {
     stop("No covered sites found in the BAM pileup.", call. = FALSE)
   }
 
-  unique_sites <- unique(pileup_df[, c("seqnames", "pos")])
-  n_sites <- nrow(unique_sites)
-  if (isTRUE(analyzer$test_mode)) {
-    n_sites <- min(n_sites, analyzer$max_sites)
-  }
-
-  out_total <- integer(n_sites)
-  out_mod <- integer(n_sites)
-  kept <- 0L
-
-  for (i in seq_len(n_sites)) {
-    chrom <- as.character(unique_sites$seqnames[i])
-    pos <- unique_sites$pos[i]
-
-    site_data <- pileup_df[pileup_df$seqnames == chrom & pileup_df$pos == pos, ]
-    if (nrow(site_data) == 0L) next
-
-    bases <- toupper(site_data$nucleotide)
-    total <- sum(site_data$count)
-    if (total < 5) next
-
-    base_counts <- stats::setNames(site_data$count, bases)
-    # In case of repeated nucleotide rows, sum counts
-    base_counts <- tapply(base_counts, names(base_counts), sum)
-    ref_base <- names(base_counts)[which.max(base_counts)]
-    ref_count <- as.integer(base_counts[[ref_base]])
-
-    kept <- kept + 1L
-    out_total[kept] <- as.integer(total)
-    out_mod[kept] <- as.integer(total - ref_count)
-  }
-
-  res <- data.frame(
-    total_depth = out_total[seq_len(kept)],
-    mod_count = out_mod[seq_len(kept)],
-    stringsAsFactors = FALSE
+  res <- .summarise_pileup_counts(
+    pileup_df,
+    max_sites = if (isTRUE(analyzer$test_mode)) analyzer$max_sites else NULL
   )
 
   analyzer$site_stats <- res
   res
+}
+
+
+#' Summarise pileup rows to per-site depth/modification counts
+#' @keywords internal
+.summarise_pileup_counts <- function(pileup_df, max_sites = NULL) {
+  dt <- data.table::as.data.table(pileup_df)
+  required_cols <- c("seqnames", "pos", "nucleotide", "count")
+  missing_cols <- setdiff(required_cols, names(dt))
+  if (length(missing_cols) > 0L) {
+    stop(
+      sprintf("Missing pileup column(s): %s", paste(missing_cols, collapse = ", ")),
+      call. = FALSE
+    )
+  }
+
+  site_order <- unique(dt[, .(seqnames, pos)])
+  if (!is.null(max_sites)) {
+    .check_count(max_sites, "max_sites")
+    site_order <- site_order[seq_len(min(.N, as.integer(max_sites)))]
+  }
+  if (nrow(site_order) == 0L) {
+    return(data.frame(total_depth = integer(0), mod_count = integer(0)))
+  }
+
+  site_order[, site_index := .I]
+  dt <- merge(dt, site_order, by = c("seqnames", "pos"))
+  dt[, nucleotide := toupper(as.character(nucleotide))]
+
+  base_dt <- dt[, .(count = sum(as.integer(count), na.rm = TRUE)),
+                by = .(site_index, nucleotide)]
+  site_dt <- base_dt[, .(
+    total_depth = sum(count),
+    ref_count = max(count)
+  ), by = site_index]
+  site_dt <- site_dt[total_depth >= 5L][order(site_index)]
+
+  data.frame(
+    total_depth = as.integer(site_dt$total_depth),
+    mod_count = as.integer(site_dt$total_depth - site_dt$ref_count),
+    stringsAsFactors = FALSE
+  )
 }
 
 

@@ -15,11 +15,12 @@
 
 #' Build a genomic region annotator from a GTF/GFF file
 #'
-#' Parses the supplied annotation file with [GenomicFeatures::makeTxDbFromGFF()]
-#' and pre-extracts the five transcript-level feature sets (5'UTR, CDS, 3'UTR,
-#' exon, intron).  A transcript-to-gene mapping table including gene names,
-#' gene biotype, transcript lengths, and transcript support levels (where
-#' available) is also constructed and cached.
+#' Parses the supplied annotation file with
+#' [txdbmaker::makeTxDbFromGFF()] and pre-extracts the five
+#' transcript-level feature sets (5'UTR, CDS, 3'UTR, exon, intron). A
+#' transcript-to-gene mapping table including gene names, gene biotype,
+#' transcript lengths, and transcript support levels (where available) is also
+#' constructed and cached.
 #'
 #' @param gtf_file Path to a GTF or GFF file.  Both Ensembl and GENCODE
 #'   formats are supported.
@@ -33,8 +34,8 @@
 #'       `transcript_length`, `transcript_level`, `gene_name`, `gene_type`.}
 #'   }
 #' @importFrom AnnotationDbi select
-#' @importFrom GenomicFeatures makeTxDbFromGFF fiveUTRsByTranscript cdsBy
-#'   threeUTRsByTranscript exonsBy intronsByTranscript
+#' @importFrom GenomicFeatures fiveUTRsByTranscript cdsBy threeUTRsByTranscript
+#'   exonsBy intronsByTranscript
 #' @importFrom GenomicRanges GRanges GRangesList findOverlaps width
 #' @importFrom IRanges IRanges
 #' @importFrom S4Vectors mcols queryHits subjectHits
@@ -43,14 +44,31 @@
 #' @examples
 #' \dontrun{
 #' ann <- new_genomic_annotator("Homo_sapiens.GRCh38.gtf.gz")
+#' merged_df <- merge_samples(m)
 #' sites_annotated <- annotate_genomic_regions(ann, merged_df)
 #' }
+.make_txdb_from_gff <- function(gtf_file, format = "gtf") {
+  if (requireNamespace("txdbmaker", quietly = TRUE)) {
+    return(txdbmaker::makeTxDbFromGFF(gtf_file, format = format))
+  }
+
+  if (exists("makeTxDbFromGFF", where = asNamespace("GenomicFeatures"), inherits = FALSE)) {
+    suppressWarnings(GenomicFeatures::makeTxDbFromGFF(gtf_file, format = format))
+  } else {
+    stop(
+      "Package 'txdbmaker' is required to build a TxDb from GTF/GFF input. ",
+      "Install it with BiocManager::install('txdbmaker').",
+      call. = FALSE
+    )
+  }
+}
+
 new_genomic_annotator <- function(gtf_file) {
   .check_file(gtf_file, "gtf_file")
   message(sprintf("Loading GTF and building TxDb: %s", basename(gtf_file)))
   t0 <- proc.time()[["elapsed"]]
 
-  txdb <- GenomicFeatures::makeTxDbFromGFF(gtf_file, format = "gtf")
+  txdb <- .make_txdb_from_gff(gtf_file, format = "gtf")
 
   message("Importing GTF for gene metadata ...")
   gtf_data  <- rtracklayer::import(gtf_file)

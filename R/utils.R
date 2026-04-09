@@ -7,6 +7,7 @@ utils::globalVariables(c(
   # General / shared
   "rate", "depth", "k",
   "site_id", "sample_id",
+  "source_order",
   "depth_col",
   "n_valid_samples",
   "n_valid",
@@ -23,6 +24,8 @@ utils::globalVariables(c(
   "feature_pos",
   "feature_weight",
   "gene_id",
+  "group",
+  "group_weight",
   "pct",
   "pos",
   "position",
@@ -35,6 +38,7 @@ utils::globalVariables(c(
   "tx_pos",
   "utr5_len",
   "val",
+  "value",
 
   # load_metagene_sites BED columns
   "start",

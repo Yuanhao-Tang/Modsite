@@ -4,10 +4,18 @@
 \alias{calc_metagene_profile}
 \title{Compute the metagene density profile}
 \usage{
-calc_metagene_profile(analyzer, smooth = TRUE, span = 0.3)
+calc_metagene_profile(
+  analyzer,
+  weight_cols = NULL,
+  smooth = TRUE,
+  span = 0.3
+)
 }
 \arguments{
 \item{analyzer}{A `MetageneAnalyzer` object from [new_metagene_analyzer()].}
+
+\item{weight_cols}{Optional character vector of numeric columns in `sites_df`
+to use as additional per-site weights.}
 
 \item{smooth}{Logical.  Apply spline smoothing.  Default `TRUE`.}
 
@@ -18,13 +26,14 @@ values produce smoother curves.  Default `0.3`.}
 The input `analyzer` with `profile_data` filled in.
 }
 \description{
-Bins mapped sites and optionally smoothes the result.  The returned
-object carries a `profile_data` `data.frame` with columns `bin`,
-`position` (0–100 percent scale), and one column per sample.
+Bins mapped sites and optionally smoothes the result. The returned
+`profile_data` contains `count` and, when `weight_cols` is supplied,
+additional `count_<col>` columns defined as
+`sum(feature_weight * value_col)` within each bin.
 }
 \examples{
 \dontrun{
-mga <- calc_metagene_profile(mga)
+mga <- calc_metagene_profile(mga, weight_cols = c("sampleA", "sampleB"))
 }
 
 }

@@ -157,6 +157,8 @@ NULL
 #'   optionally `strand`.  Additional columns (sample values) are carried
 #'   through unchanged.
 #' @param split_strategy Passed to `.calculate_region_splits()`.
+#' @param keep_cols Optional character vector of columns from `sites_df` to carry
+#'   into the mapped output. When `NULL`, all original columns are retained.
 #' @return A named list with two elements:
 #'   \describe{
 #'     \item{`data`}{`data.table` with all original columns plus
@@ -166,7 +168,8 @@ NULL
 #'   Returns `NULL` if no sites could be mapped.
 #' @keywords internal
 .map_sites_to_metagene <- function(annotator, sites_df,
-                                   split_strategy = "median") {
+                                   split_strategy = "median",
+                                   keep_cols = NULL) {
   tx_meta <- .get_tx_metadata(annotator)
   splits  <- .calculate_region_splits(tx_meta, strategy = split_strategy)
 
@@ -201,7 +204,12 @@ NULL
   orig_dt <- data.table::as.data.table(sites_df)
   orig_dt[, .tmp_idx := .I]
 
-  matched <- orig_dt[res_dt$site_id]
+  if (is.null(keep_cols)) {
+    matched <- orig_dt[res_dt$site_id]
+  } else {
+    keep_cols <- intersect(unique(c(keep_cols, ".tmp_idx")), names(orig_dt))
+    matched <- orig_dt[res_dt$site_id, ..keep_cols]
+  }
   res_dt  <- merge(res_dt, tx_meta, by = "tx_name", all.x = TRUE)
 
   add_cols <- setdiff(names(matched), names(res_dt))
@@ -224,55 +232,136 @@ NULL
 #'
 #' @param mapped_res  List produced by `.map_sites_to_metagene()`.
 #' @param bin_number  Number of equal-width bins over [0, 1].
-#' @param sample_cols Character vector of sample column names to profile.
-#' @param aggregation_method `"mean"` (weighted sum) or `"median"`.
+#' @param weight_cols Optional character vector of columns in `mapped_res$data`
+#'   to use as additional per-site weights.
 #' @param smooth      Logical.  Apply `smooth.spline` if `TRUE`.
 #' @param span        Smoothing parameter passed to `smooth.spline(spar=)`.
 #' @return `data.table` with columns `bin`, `position` (bin centre in [0, 1]),
-#'   and one column per element of `sample_cols`.
+#'   plus `count` and optional `count_<col>` columns.
 #' @keywords internal
 .calculate_profile_dt <- function(mapped_res, bin_number = 100L,
-                                  sample_cols = NULL,
-                                  aggregation_method = "mean",
+                                  weight_cols = NULL,
                                   smooth = TRUE, span = 0.3) {
-  dt <- mapped_res$data
+  prepared <- .prepare_metagene_bins(mapped_res, bin_number = bin_number)
+  dt <- prepared$dt
+  if (is.null(dt) || nrow(dt) == 0L) return(NULL)
 
+  res_dt <- prepared$res_dt
+  if (is.null(weight_cols)) {
+    weight_cols <- character(0)
+  }
+  weight_cols <- intersect(weight_cols, names(dt))
+
+  res_dt[["count"]] <- .calculate_metagene_series(
+    dt = dt,
+    bin_number = bin_number,
+    value_col = NULL,
+    smooth = smooth,
+    span = span
+  )
+
+  if (length(weight_cols) > 0L) {
+    for (col in weight_cols) {
+      res_dt[[paste0("count_", col)]] <- .calculate_metagene_series(
+        dt = dt,
+        bin_number = bin_number,
+        value_col = col,
+        smooth = smooth,
+        span = span
+      )
+    }
+  }
+
+  res_dt
+}
+
+
+#' Prepare binned metagene positions
+#' @keywords internal
+.prepare_metagene_bins <- function(mapped_res, bin_number = 100L) {
+  dt <- data.table::as.data.table(mapped_res$data)
   brks <- seq(0, 1, length.out = bin_number + 1L)
   dt[, bin := cut(feature_pos, breaks = brks, labels = FALSE,
                   include.lowest = TRUE)]
   dt <- dt[!is.na(bin)]
-
-  if (nrow(dt) == 0L) return(NULL)
+  if (nrow(dt) == 0L) {
+    return(list(dt = NULL, res_dt = NULL))
+  }
 
   bin_centres <- seq(brks[1] + diff(brks[1:2]) / 2,
                      brks[bin_number] + diff(brks[1:2]) / 2,
                      length.out = bin_number)
-  res_dt <- data.table::data.table(bin = seq_len(bin_number),
-                                   position = bin_centres)
+  res_dt <- data.table::data.table(
+    bin = seq_len(bin_number),
+    position = bin_centres
+  )
 
-  for (s in sample_cols) {
-    if (aggregation_method == "mean") {
-      agg <- dt[, .(val = sum(.SD[[1L]] * feature_weight, na.rm = TRUE)),
-                by = bin, .SDcols = s]
-    } else {
-      agg <- dt[, .(val = stats::median(.SD[[1L]], na.rm = TRUE)),
-                by = bin, .SDcols = s]
+  list(dt = dt, res_dt = res_dt)
+}
+
+
+#' Calculate one metagene profile series
+#' @keywords internal
+.calculate_metagene_series <- function(dt, bin_number,
+                                       value_col = NULL,
+                                       smooth = TRUE, span = 0.3) {
+  full <- data.table::data.table(bin = seq_len(bin_number))
+
+  if (is.null(value_col)) {
+    agg <- dt[, .(val = sum(feature_weight, na.rm = TRUE)), by = bin]
+  } else {
+    if (!value_col %in% names(dt)) {
+      stop("A valid `value_col` is required for weighted metagene profiles.",
+           call. = FALSE)
     }
-
-    full <- data.table::data.table(bin = seq_len(bin_number))
-    agg  <- merge(full, agg, by = "bin", all.x = TRUE)
-    agg[is.na(val), val := 0]
-
-    if (smooth && nrow(agg) > 10L) {
-      fit        <- stats::smooth.spline(x = agg$bin, y = agg$val, spar = span)
-      smoothed   <- stats::predict(fit, seq_len(bin_number))$y
-      agg        <- data.table::data.table(bin = seq_len(bin_number),
-                                           val = pmax(smoothed, 0))
+    valid_dt <- dt[!is.na(get(value_col))]
+    if (nrow(valid_dt) == 0L) {
+      agg <- full
+      agg[, val := 0]
+      return(.smooth_metagene_values(
+        values = agg$val,
+        bins = agg$bin,
+        smooth = smooth,
+        span = span
+      ))
     }
-
-    res_dt <- merge(res_dt, agg, by = "bin", all.x = TRUE)
-    data.table::setnames(res_dt, "val", s)
+    agg <- valid_dt[, .(val = sum(feature_weight * get(value_col), na.rm = TRUE)),
+                    by = bin]
   }
 
-  res_dt
+  agg <- merge(full, agg, by = "bin", all.x = TRUE)
+  agg[is.na(val), val := 0]
+
+  .smooth_metagene_values(
+    values = agg$val,
+    bins = agg$bin,
+    smooth = smooth,
+    span = span
+  )
+}
+
+
+#' Smooth metagene profile values
+#' @keywords internal
+.smooth_metagene_values <- function(values, bins, smooth = TRUE, span = 0.3) {
+  if (!smooth || length(values) <= 10L) {
+    return(values)
+  }
+
+  valid <- !is.na(values)
+  if (sum(valid) <= 10L) {
+    return(values)
+  }
+
+  fit <- stats::smooth.spline(x = bins[valid], y = values[valid], spar = span)
+  pred <- stats::predict(fit, bins)$y
+
+  pmax(pred, 0)
+}
+
+
+#' Provide a default when x is NULL
+#' @keywords internal
+`%||%` <- function(x, y) {
+  if (is.null(x)) y else x
 }

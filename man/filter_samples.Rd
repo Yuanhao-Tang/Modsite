@@ -18,7 +18,8 @@ Must be in `[0, 1]`. Default `0.5`.}
 }
 \value{
 The (invisibly modified) `merger` object with samples removed from
-  all relevant fields.
+  all relevant fields. Use `merger$merged_data` to access the filtered
+  merged table after this call.
 }
 \description{
 Operates on `merger$merged_data`.  Samples whose fraction of `NA` sites
@@ -29,7 +30,9 @@ exceeds `max_missing_rate` are dropped from the data, `$sample_names`,
 \dontrun{
 m <- new_merger(sample_files = files, condition = groups,
                 modification_method = "PUMseq")
+merge_samples(m)
 filter_samples(m, max_missing_rate = 0.4)
+filtered_df <- m$merged_data
 }
 
 }

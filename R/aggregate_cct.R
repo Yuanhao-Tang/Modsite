@@ -4,6 +4,7 @@
 # and is well-suited for aggregating per-site differential modification results
 # to the gene or transcript level.
 #
+#' @importFrom stats median p.adjust
 NULL
 
 

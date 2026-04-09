@@ -7,8 +7,7 @@
 .calculate_profile_dt(
   mapped_res,
   bin_number = 100L,
-  sample_cols = NULL,
-  aggregation_method = "mean",
+  weight_cols = NULL,
   smooth = TRUE,
   span = 0.3
 )
@@ -18,9 +17,8 @@
 
 \item{bin_number}{Number of equal-width bins over [0, 1].}
 
-\item{sample_cols}{Character vector of sample column names to profile.}
-
-\item{aggregation_method}{`"mean"` (weighted sum) or `"median"`.}
+\item{weight_cols}{Optional character vector of columns in `mapped_res$data`
+to use as additional per-site weights.}
 
 \item{smooth}{Logical.  Apply `smooth.spline` if `TRUE`.}
 
@@ -28,7 +26,7 @@
 }
 \value{
 `data.table` with columns `bin`, `position` (bin centre in [0, 1]),
-  and one column per element of `sample_cols`.
+  plus `count` and optional `count_<col>` columns.
 }
 \description{
 Bin and optionally smooth a metagene density profile

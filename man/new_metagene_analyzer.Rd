@@ -6,49 +6,31 @@
 \usage{
 new_metagene_analyzer(
   annotator,
-  annotated_df,
-  sample_cols = NULL,
+  sites_df = NULL,
+  annotated_df = NULL,
   n_bins = 100L,
-  aggregation_method = "mean",
   split_strategy = "median"
 )
 }
 \arguments{
 \item{annotator}{A `GenomicAnnotator` object produced by
-[new_genomic_annotator()] + [annotate_genomic_regions()].}
+[new_genomic_annotator()].}
 
-\item{annotated_df}{A `data.frame` (or `data.table`) of modification sites.
-Must contain at minimum `chrom` and `pos` columns.  Additional numeric
-columns are treated as per-sample modification rates.}
+\item{sites_df}{A `data.frame` (or `data.table`) of genomic sites. Must
+contain at minimum `chrom` and `pos`; `strand` is optional. Additional
+columns are retained so they can later be used as optional metagene
+weights.}
 
-\item{sample_cols}{Character vector of sample column names.  If `NULL`
-(default), columns are auto-detected with [.detect_sample_cols()].}
+\item{annotated_df}{Deprecated compatibility alias for `sites_df`.}
 
 \item{n_bins}{Number of equal-width bins across the normalised
 coordinate [0, 1].  Default `100`.}
-
-\item{aggregation_method}{Aggregation within each bin: `"mean"` (default,
-weighted sum) or `"median"`.}
 
 \item{split_strategy}{Strategy for computing region proportions: `"median"`
 (default) or `"mean"`.}
 }
 \value{
-An S3 object of class `MetageneAnalyzer` — a named list with:
-\describe{
-  \item{`annotator`}{Input annotator.}
-  \item{`annotated_df`}{Input site data.}
-  \item{`sample_cols`}{Character vector of sample columns used.}
-  \item{`n_bins`}{Number of bins.}
-  \item{`aggregation_method`}{Aggregation method.}
-  \item{`split_strategy`}{Region proportion strategy.}
-  \item{`mapped_res`}{Mapping result list from internal
-    `.map_sites_to_metagene()`; `NULL` if no sites mapped.}
-  \item{`profile_data`}{Profile `data.frame`; filled by
-    [calc_metagene_profile()].}
-  \item{`region_boundaries`}{Named list of bin-percent boundaries for
-    5'UTR/CDS/3'UTR regions.}
-}
+An S3 object of class `MetageneAnalyzer`.
 }
 \description{
 Initialises a metagene analysis object and immediately maps all sites onto
@@ -56,11 +38,10 @@ normalised transcript coordinates.
 }
 \examples{
 \dontrun{
-ann  <- new_genomic_annotator(gtf_path = "Mus_musculus.gtf")
-ann  <- annotate_genomic_regions(ann, sites_df)
-mga  <- new_metagene_analyzer(ann$annotator, ann$result)
-mga  <- calc_metagene_profile(mga)
-p    <- plot_metagene(mga)
+ann <- new_genomic_annotator(gtf_file = "Mus_musculus.gtf")
+mga <- new_metagene_analyzer(ann, sites_df = sites_df)
+mga <- calc_metagene_profile(mga, weight_cols = "sampleA")
+p <- plot_metagene(mga)
 }
 
 }

@@ -6,4 +6,4 @@
 ..Rcheck/
 modsite.Rcheck/
 *.tar.gz
-README.html
+.ipynb_checkpoints/

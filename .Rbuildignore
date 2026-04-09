@@ -1,9 +1,10 @@
 ^\.cursor$
 ^\.github$
-^CURSOR_START_PROMPT\.md$
 ^LEGACY_SOURCES\.md$
 ^.*\.Rproj$
 ^\.Rproj\.user$
 ^\.\.Rcheck$
 ^modsite\.Rcheck$
 ^README\.Rmd$
+\.ipynb$
+(^|/)\.ipynb_checkpoints($|/)

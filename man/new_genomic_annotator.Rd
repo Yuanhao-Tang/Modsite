@@ -22,15 +22,16 @@ An object of class `GenomicAnnotator` (a named list) with fields:
   }
 }
 \description{
-Parses the supplied annotation file with [GenomicFeatures::makeTxDbFromGFF()]
+Parses the supplied annotation file with [txdbmaker::makeTxDbFromGFF()]
 and pre-extracts the five transcript-level feature sets (5'UTR, CDS, 3'UTR,
-exon, intron).  A transcript-to-gene mapping table including gene names,
+exon, intron). A transcript-to-gene mapping table including gene names,
 gene biotype, transcript lengths, and transcript support levels (where
 available) is also constructed and cached.
 }
 \examples{
 \dontrun{
 ann <- new_genomic_annotator("Homo_sapiens.GRCh38.gtf.gz")
+merged_df <- merge_samples(m)
 sites_annotated <- annotate_genomic_regions(ann, merged_df)
 }
 }

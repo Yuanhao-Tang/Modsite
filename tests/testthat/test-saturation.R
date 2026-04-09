@@ -22,6 +22,25 @@ test_that("simulate_downsampling works with in-memory site_stats fixture", {
 })
 
 
+test_that("summarise_pileup_counts aggregates sites without per-site loops", {
+  pileup_df <- data.frame(
+    seqnames = c("chr1", "chr1", "chr1", "chr1", "chr1", "chr1"),
+    pos = c(10L, 10L, 10L, 20L, 20L, 30L),
+    nucleotide = c("A", "C", "A", "G", "T", "T"),
+    count = c(7L, 3L, 2L, 4L, 3L, 4L),
+    stringsAsFactors = FALSE
+  )
+
+  res_all <- modsite:::.summarise_pileup_counts(pileup_df)
+  expect_equal(res_all$total_depth, c(12L, 7L))
+  expect_equal(res_all$mod_count, c(3L, 3L))
+
+  res_limited <- modsite:::.summarise_pileup_counts(pileup_df, max_sites = 1L)
+  expect_equal(res_limited$total_depth, 12L)
+  expect_equal(res_limited$mod_count, 3L)
+})
+
+
 test_that("plot_saturation writes a PNG file", {
   a <- modsite:::new_saturation_analyzer("fake.bam")
   sim <- data.frame(ratio = c(0.1, 1.0), valid_sites = c(1L, 10L))

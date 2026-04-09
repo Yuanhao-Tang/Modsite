@@ -4,8 +4,9 @@
 \alias{metagene}
 \title{Metagene profile analysis}
 \description{
-Functions for computing and plotting the distribution of RNA modification
-sites across normalised transcript coordinates (5'UTR → CDS → 3'UTR).
-Internal computation is handled by `metagene_core.R`; file loading helpers
-are in `metagene_io.R`.
+Functions for mapping genomic sites to normalised transcript coordinates and
+computing metagene profiles. The default profile, `count`, is the weighted
+site count across bins, where the only built-in weight is
+`feature_weight = 1 / N_mappings`. Optional numeric columns can be supplied as
+additional per-site weights, producing `count_<col>` signal tracks.
 }

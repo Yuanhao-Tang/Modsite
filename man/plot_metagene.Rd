@@ -6,30 +6,29 @@
 \usage{
 plot_metagene(
   analyzer,
-  sample_to_plot = NULL,
+  series_to_plot = NULL,
   title = NULL,
   colors = NULL,
-  show_ci = FALSE,
   output_file = NULL,
   width = 10,
   height = 5,
-  dpi = 300
+  dpi = 300,
+  sample_to_plot = NULL,
+  show_ci = FALSE
 )
 }
 \arguments{
 \item{analyzer}{A `MetageneAnalyzer` object with `profile_data` filled
 (i.e. after [calc_metagene_profile()]).}
 
-\item{sample_to_plot}{Character vector of sample names to include.  Default
-`NULL` plots all samples.}
+\item{series_to_plot}{Optional character vector of series labels to include.
+Use `"count"` for the default weighted site-count track; weighted columns
+are referred to by their original column names.}
 
 \item{title}{Plot title.  Auto-generated when `NULL`.}
 
 \item{colors}{Named or unnamed character vector of line colours.
 Auto-selected when `NULL`.}
-
-\item{show_ci}{Logical.  Draw confidence-interval ribbons when
-`<sample>_ci_lower` / `<sample>_ci_upper` columns exist.  Default `FALSE`.}
 
 \item{output_file}{File path for saving the plot via [ggplot2::ggsave()].
 No file is written when `NULL` (default).}
@@ -37,20 +36,22 @@ No file is written when `NULL` (default).}
 \item{width, height}{Plot dimensions in inches (default 10 × 5).}
 
 \item{dpi}{Resolution for saved file.  Default 300.}
+
+\item{sample_to_plot}{Deprecated compatibility alias for `series_to_plot`.}
+
+\item{show_ci}{Deprecated compatibility argument; ignored.}
 }
 \value{
-A `ggplot` object (invisibly also saved if `output_file` is set).
+A `ggplot` object.
 }
 \description{
-Draws a publication-quality line plot of modification density along the
-normalised transcript axis, with shaded region backgrounds and boundary
-lines.
+Draws a line plot of `count` and optional `count_<col>` series along the
+normalised transcript axis.
 }
 \examples{
 \dontrun{
-p <- plot_metagene(mga)
-print(p)
-plot_metagene(mga, output_file = "metagene.pdf")
+plot_metagene(mga)
+plot_metagene(mga, series_to_plot = c("count", "sampleA"))
 }
 
 }

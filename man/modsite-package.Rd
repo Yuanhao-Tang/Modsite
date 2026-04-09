@@ -29,9 +29,10 @@ A typical analysis proceeds in six stages:
     See [new_diff_sites()], [run_diff_sites()].
 
   \item **Differential analysis (GLMM)** – site-level Beta-Binomial GLMM
-    supporting multiple fixed effects, random effects, and optional
-    dispersion trend stabilisation.
-    See [run_glmm()], [estimate_phi_trend()].
+    supporting multiple fixed effects, random effects, optional
+    dispersion trend stabilisation, and a hierarchical Bayesian
+    alternative with the same output layout.
+    See [run_glmm()], [run_glmm_bayes()], [estimate_phi_trend()].
 
   \item **Feature aggregation** – aggregate site-level p-values to gene or
     transcript level using the Cauchy Combination Test.

@@ -11,10 +11,13 @@ Description: A production-quality toolkit for RNA modification site analysis.
     via GTF/GFF, cross-referencing against known modification databases,
     sample-level summary statistics, sequencing saturation analysis,
     site-level differential modification analysis (t-test, Wilcoxon, and
-    Beta-Binomial GLMM with optional dispersion trend estimation),
+    Beta-Binomial GLMM with optional dispersion trend estimation and a
+    hierarchical Bayesian alternative),
     feature-level Cauchy Combination Test (CCT) aggregation for gene and
     transcript summaries, metagene profiling across transcript regions,
     and sequence logo visualization.
+URL: https://github.com/Yuanhao-Tang/Modsite
+BugReports: https://github.com/Yuanhao-Tang/Modsite/issues
 License: GPL-3
 Encoding: UTF-8
 Depends: R (>= 4.1.0)
@@ -26,6 +29,7 @@ Imports:
     utils,
     tools,
     graphics,
+    txdbmaker,
     AnnotationDbi,
     GenomicFeatures,
     GenomicRanges,

@@ -1,9 +1,10 @@
 #' @title Metagene profile analysis
 #' @description
-#' Functions for computing and plotting the distribution of RNA modification
-#' sites across normalised transcript coordinates (5'UTR → CDS → 3'UTR).
-#' Internal computation is handled by `metagene_core.R`; file loading helpers
-#' are in `metagene_io.R`.
+#' Functions for mapping genomic sites to normalised transcript coordinates and
+#' computing metagene profiles. The default profile, `count`, is the weighted
+#' site count across bins, where the only built-in weight is
+#' `feature_weight = 1 / N_mappings`. Optional numeric columns can be supplied as
+#' additional per-site weights, producing `count_<col>` signal tracks.
 #'
 #' @name metagene
 NULL
@@ -17,90 +18,74 @@ NULL
 #' Initialises a metagene analysis object and immediately maps all sites onto
 #' normalised transcript coordinates.
 #'
-#' @param annotator      A `GenomicAnnotator` object produced by
-#'   [new_genomic_annotator()] + [annotate_genomic_regions()].
-#' @param annotated_df   A `data.frame` (or `data.table`) of modification sites.
-#'   Must contain at minimum `chrom` and `pos` columns.  Additional numeric
-#'   columns are treated as per-sample modification rates.
-#' @param sample_cols    Character vector of sample column names.  If `NULL`
-#'   (default), columns are auto-detected with [.detect_sample_cols()].
-#' @param n_bins         Number of equal-width bins across the normalised
-#'   coordinate [0, 1].  Default `100`.
-#' @param aggregation_method Aggregation within each bin: `"mean"` (default,
-#'   weighted sum) or `"median"`.
+#' @param annotator A `GenomicAnnotator` object produced by
+#'   [new_genomic_annotator()].
+#' @param sites_df A `data.frame` (or `data.table`) of genomic sites. Must
+#'   contain at minimum `chrom` and `pos`; `strand` is optional. Additional
+#'   columns are retained so they can later be used as optional metagene
+#'   weights.
+#' @param annotated_df Deprecated compatibility alias for `sites_df`.
+#' @param n_bins Number of equal-width bins across the normalised coordinate
+#'   [0, 1]. Default `100`.
 #' @param split_strategy Strategy for computing region proportions: `"median"`
 #'   (default) or `"mean"`.
 #'
-#' @return An S3 object of class `MetageneAnalyzer` — a named list with:
-#' \describe{
-#'   \item{`annotator`}{Input annotator.}
-#'   \item{`annotated_df`}{Input site data.}
-#'   \item{`sample_cols`}{Character vector of sample columns used.}
-#'   \item{`n_bins`}{Number of bins.}
-#'   \item{`aggregation_method`}{Aggregation method.}
-#'   \item{`split_strategy`}{Region proportion strategy.}
-#'   \item{`mapped_res`}{Mapping result list from internal
-#'     `.map_sites_to_metagene()`; `NULL` if no sites mapped.}
-#'   \item{`profile_data`}{Profile `data.frame`; filled by
-#'     [calc_metagene_profile()].}
-#'   \item{`region_boundaries`}{Named list of bin-percent boundaries for
-#'     5'UTR/CDS/3'UTR regions.}
-#' }
+#' @return An S3 object of class `MetageneAnalyzer`.
 #'
 #' @examples
 #' \dontrun{
-#' ann  <- new_genomic_annotator(gtf_path = "Mus_musculus.gtf")
-#' ann  <- annotate_genomic_regions(ann, sites_df)
-#' mga  <- new_metagene_analyzer(ann$annotator, ann$result)
-#' mga  <- calc_metagene_profile(mga)
-#' p    <- plot_metagene(mga)
+#' ann <- new_genomic_annotator(gtf_file = "Mus_musculus.gtf")
+#' mga <- new_metagene_analyzer(ann, sites_df = sites_df)
+#' mga <- calc_metagene_profile(mga, weight_cols = "sampleA")
+#' p <- plot_metagene(mga)
 #' }
 #'
 #' @export
 new_metagene_analyzer <- function(annotator,
-                                  annotated_df,
-                                  sample_cols        = NULL,
-                                  n_bins             = 100L,
-                                  aggregation_method = "mean",
-                                  split_strategy     = "median") {
-  if (!inherits(annotator, "GenomicAnnotator"))
-    stop("`annotator` must be a GenomicAnnotator object.")
+                                  sites_df = NULL,
+                                  annotated_df = NULL,
+                                  n_bins = 100L,
+                                  split_strategy = "median") {
+  if (!inherits(annotator, "GenomicAnnotator")) {
+    stop("`annotator` must be a GenomicAnnotator object.", call. = FALSE)
+  }
 
-  if (is.null(sample_cols))
-    sample_cols <- .detect_metagene_sample_cols(annotated_df)
-
-  if (length(sample_cols) == 0L)
-    stop("No sample columns found. Check the data or supply `sample_cols`.")
+  sites_df <- .resolve_metagene_sites_df(sites_df, annotated_df)
 
   message(sprintf(
-    "Initialising MetageneAnalyzer: %d sample(s), %d bins, strategy = %s",
-    length(sample_cols), n_bins, split_strategy))
+    "Initialising MetageneAnalyzer: %d sites, %d bins, strategy = %s",
+    nrow(sites_df), n_bins, split_strategy
+  ))
 
   obj <- list(
-    annotator          = annotator,
-    annotated_df       = annotated_df,
-    sample_cols        = sample_cols,
-    n_bins             = n_bins,
-    aggregation_method = aggregation_method,
-    split_strategy     = split_strategy,
-    mapped_res         = NULL,
-    profile_data       = NULL,
-    region_boundaries  = NULL
+    annotator = annotator,
+    sites_df = sites_df,
+    annotated_df = sites_df,
+    n_bins = n_bins,
+    split_strategy = split_strategy,
+    mapped_res = NULL,
+    profile_data = NULL,
+    region_boundaries = NULL,
+    weight_cols = NULL
   )
   class(obj) <- "MetageneAnalyzer"
 
   message("Mapping sites to transcript coordinates...")
-  obj$mapped_res <- .map_sites_to_metagene(annotator, annotated_df,
-                                           split_strategy = split_strategy)
+  obj$mapped_res <- .map_sites_to_metagene(
+    annotator = annotator,
+    sites_df = sites_df,
+    split_strategy = split_strategy,
+    keep_cols = NULL
+  )
 
   if (is.null(obj$mapped_res)) {
     warning("No sites could be mapped to any transcript.")
   } else {
     s <- obj$mapped_res$splits
     obj$region_boundaries <- list(
-      utr5_end  = s[[1]] * 100,
+      utr5_end = s[[1]] * 100,
       cds_start = s[[1]] * 100,
-      cds_end   = (s[[1]] + s[[2]]) * 100,
+      cds_end = (s[[1]] + s[[2]]) * 100,
       utr3_start = (s[[1]] + s[[2]]) * 100
     )
   }
@@ -113,46 +98,58 @@ new_metagene_analyzer <- function(annotator,
 # Profile computation
 # -------------------------------------------------------------------------
 
-#' Compute the metagene density profile
+#' Compute a metagene profile
 #'
-#' Bins mapped sites and optionally smoothes the result.  The returned
-#' object carries a `profile_data` `data.frame` with columns `bin`,
-#' `position` (0–100 percent scale), and one column per sample.
+#' Bins mapped sites and optionally smoothes the result. The returned
+#' `profile_data` contains `count` and, when `weight_cols` is supplied,
+#' additional `count_<col>` columns defined as
+#' `sum(feature_weight * value_col)` within each bin.
 #'
-#' @param analyzer  A `MetageneAnalyzer` object from [new_metagene_analyzer()].
-#' @param smooth    Logical.  Apply spline smoothing.  Default `TRUE`.
-#' @param span      Smoothing parameter for `smooth.spline(spar=)`.  Higher
-#'   values produce smoother curves.  Default `0.3`.
+#' @param analyzer A `MetageneAnalyzer` object from [new_metagene_analyzer()].
+#' @param weight_cols Optional character vector of numeric columns in `sites_df`
+#'   to use as additional per-site weights.
+#' @param smooth Logical. Apply spline smoothing. Default `TRUE`.
+#' @param span Smoothing parameter for `smooth.spline(spar=)`. Higher values
+#'   produce smoother curves. Default `0.3`.
 #'
 #' @return The input `analyzer` with `profile_data` filled in.
 #'
 #' @examples
 #' \dontrun{
-#' mga <- calc_metagene_profile(mga)
+#' mga <- calc_metagene_profile(mga, weight_cols = c("sampleA", "sampleB"))
 #' }
 #'
 #' @export
-calc_metagene_profile <- function(analyzer, smooth = TRUE, span = 0.3) {
-  if (!inherits(analyzer, "MetageneAnalyzer"))
-    stop("`analyzer` must be a MetageneAnalyzer object.")
-  if (is.null(analyzer$mapped_res))
-    stop("No mapped data available. Check that sites were mapped successfully.")
+calc_metagene_profile <- function(analyzer,
+                                  weight_cols = NULL,
+                                  smooth = TRUE,
+                                  span = 0.3) {
+  if (!inherits(analyzer, "MetageneAnalyzer")) {
+    stop("`analyzer` must be a MetageneAnalyzer object.", call. = FALSE)
+  }
+  if (is.null(analyzer$mapped_res)) {
+    stop("No mapped data available. Check that sites were mapped successfully.",
+         call. = FALSE)
+  }
+
+  weight_cols <- .normalize_metagene_weight_cols(weight_cols, analyzer$mapped_res$data)
 
   message("Computing metagene profile (binning + smoothing)...")
 
   profile_dt <- .calculate_profile_dt(
-    mapped_res         = analyzer$mapped_res,
-    bin_number         = analyzer$n_bins,
-    sample_cols        = analyzer$sample_cols,
-    aggregation_method = analyzer$aggregation_method,
-    smooth             = smooth,
-    span               = span
+    mapped_res = analyzer$mapped_res,
+    bin_number = analyzer$n_bins,
+    weight_cols = weight_cols,
+    smooth = smooth,
+    span = span
   )
 
-  if (!is.null(profile_dt))
+  if (!is.null(profile_dt)) {
     profile_dt[, position := position * 100]
+  }
 
   analyzer$profile_data <- as.data.frame(profile_dt)
+  analyzer$weight_cols <- weight_cols
   message("Done.")
   analyzer
 }
@@ -162,106 +159,118 @@ calc_metagene_profile <- function(analyzer, smooth = TRUE, span = 0.3) {
 # Plotting
 # -------------------------------------------------------------------------
 
-#' Plot a metagene density profile
+#' Plot a metagene profile
 #'
-#' Draws a publication-quality line plot of modification density along the
-#' normalised transcript axis, with shaded region backgrounds and boundary
-#' lines.
+#' Draws a line plot of `count` and optional `count_<col>` series along the
+#' normalised transcript axis.
 #'
-#' @param analyzer      A `MetageneAnalyzer` object with `profile_data` filled
+#' @param analyzer A `MetageneAnalyzer` object with `profile_data` filled
 #'   (i.e. after [calc_metagene_profile()]).
-#' @param sample_to_plot Character vector of sample names to include.  Default
-#'   `NULL` plots all samples.
-#' @param title         Plot title.  Auto-generated when `NULL`.
-#' @param colors        Named or unnamed character vector of line colours.
-#'   Auto-selected when `NULL`.
-#' @param show_ci       Logical.  Draw confidence-interval ribbons when
-#'   `<sample>_ci_lower` / `<sample>_ci_upper` columns exist.  Default `FALSE`.
-#' @param output_file   File path for saving the plot via [ggplot2::ggsave()].
-#'   No file is written when `NULL` (default).
-#' @param width,height  Plot dimensions in inches (default 10 × 5).
-#' @param dpi           Resolution for saved file.  Default 300.
+#' @param series_to_plot Optional character vector of series labels to include.
+#'   Use `"count"` for the default weighted site-count track; weighted columns
+#'   are referred to by their original column names.
+#' @param title Plot title. Auto-generated when `NULL`.
+#' @param colors Named or unnamed character vector of line colours.
+#' @param output_file File path for saving the plot via [ggplot2::ggsave()].
+#' @param width,height Plot dimensions in inches (default 10 x 5).
+#' @param dpi Resolution for saved file. Default 300.
+#' @param sample_to_plot Deprecated compatibility alias for `series_to_plot`.
+#' @param show_ci Deprecated compatibility argument; ignored.
 #'
-#' @return A `ggplot` object (invisibly also saved if `output_file` is set).
+#' @return A `ggplot` object.
 #'
 #' @examples
 #' \dontrun{
-#' p <- plot_metagene(mga)
-#' print(p)
-#' plot_metagene(mga, output_file = "metagene.pdf")
+#' plot_metagene(mga)
+#' plot_metagene(mga, series_to_plot = c("count", "sampleA"))
 #' }
 #'
 #' @export
 plot_metagene <- function(analyzer,
+                          series_to_plot = NULL,
+                          title = NULL,
+                          colors = NULL,
+                          output_file = NULL,
+                          width = 10,
+                          height = 5,
+                          dpi = 300,
                           sample_to_plot = NULL,
-                          title          = NULL,
-                          colors         = NULL,
-                          show_ci        = FALSE,
-                          output_file    = NULL,
-                          width          = 10,
-                          height         = 5,
-                          dpi            = 300) {
-  if (!inherits(analyzer, "MetageneAnalyzer"))
-    stop("`analyzer` must be a MetageneAnalyzer object.")
-  if (is.null(analyzer$profile_data))
-    stop("Run `calc_metagene_profile()` before plotting.")
+                          show_ci = FALSE) {
+  if (!inherits(analyzer, "MetageneAnalyzer")) {
+    stop("`analyzer` must be a MetageneAnalyzer object.", call. = FALSE)
+  }
+  if (is.null(analyzer$profile_data)) {
+    stop("Run `calc_metagene_profile()` before plotting.", call. = FALSE)
+  }
+
+  if (!is.null(sample_to_plot) && is.null(series_to_plot)) {
+    series_to_plot <- sample_to_plot
+  }
+  if (!missing(show_ci) && isTRUE(show_ci)) {
+    warning("`show_ci` is ignored by the simplified metagene plot.", call. = FALSE)
+  }
 
   profile_data <- analyzer$profile_data
-  boundaries   <- analyzer$region_boundaries
-  sample_cols  <- analyzer$sample_cols
+  boundaries <- analyzer$region_boundaries
+  target_cols <- .metagene_profile_columns(profile_data)
+  plot_labels <- .metagene_series_labels(target_cols)
 
-  if (!is.null(sample_to_plot)) {
-    sample_cols <- intersect(sample_cols, sample_to_plot)
-    if (length(sample_cols) == 0L)
-      stop("None of the requested samples found in profile_data.")
+  if (!is.null(series_to_plot)) {
+    keep <- plot_labels %in% series_to_plot
+    target_cols <- target_cols[keep]
+    plot_labels <- plot_labels[keep]
+    if (length(target_cols) == 0L) {
+      stop("None of the requested series were found in `profile_data`.",
+           call. = FALSE)
+    }
+  }
+
+  if (length(target_cols) == 0L) {
+    stop("No profile columns are available for plotting.", call. = FALSE)
   }
 
   default_colors <- c("#E63946", "#457B9D", "#2A9D8F", "#E9C46A",
                       "#F4A261", "#264653", "#A8DADC", "#6A4C93")
   if (is.null(colors)) {
-    colors <- if (length(sample_cols) <= length(default_colors)) {
-      default_colors[seq_along(sample_cols)]
+    colors <- if (length(target_cols) <= length(default_colors)) {
+      default_colors[seq_along(target_cols)]
     } else {
-      .metagene_hue_pal(length(sample_cols))
+      .metagene_hue_pal(length(target_cols))
     }
   }
 
-  plot_df <- do.call(rbind, lapply(seq_along(sample_cols), function(i) {
-    s  <- sample_cols[i]
-    df <- data.frame(
+  plot_df <- do.call(rbind, lapply(seq_along(target_cols), function(i) {
+    data.frame(
       position = profile_data$position,
-      density  = profile_data[[s]],
-      sample   = s,
-      color    = colors[i],
+      density = profile_data[[target_cols[i]]],
+      series = plot_labels[i],
       stringsAsFactors = FALSE
     )
-    lo <- paste0(s, "_ci_lower"); hi <- paste0(s, "_ci_upper")
-    df$ci_lower <- if (lo %in% colnames(profile_data)) profile_data[[lo]] else NA_real_
-    df$ci_upper <- if (hi %in% colnames(profile_data)) profile_data[[hi]] else NA_real_
-    df
   }))
   plot_df <- plot_df[!is.na(plot_df$density), ]
 
-  if (is.null(title))
-    title <- sprintf("Metagene Profile (%s strategy, %s aggregation)",
-                     analyzer$split_strategy, analyzer$aggregation_method)
+  if (is.null(title)) {
+    title <- .metagene_default_title(target_cols)
+  }
 
-  y_max  <- max(plot_df$density, na.rm = TRUE)
-  y_min  <- 0
+  y_max <- max(plot_df$density, na.rm = TRUE)
+  y_min <- 0
 
   region_df <- label_df <- vline_df <- NULL
   if (!is.null(boundaries)) {
     b <- boundaries
     region_df <- data.frame(
-      xmin  = c(0,          b$utr5_end,  b$cds_end),
-      xmax  = c(b$utr5_end, b$cds_end,   100),
-      fill  = c("#AED9E0",  "#B7E4C7",   "#FFF3B0"),
+      xmin = c(0, b$utr5_end, b$cds_end),
+      xmax = c(b$utr5_end, b$cds_end, 100),
+      fill = c("#AED9E0", "#B7E4C7", "#FFF3B0"),
       stringsAsFactors = FALSE
     )
     label_df <- data.frame(
-      x     = c(b$utr5_end / 2,
-                (b$utr5_end + b$cds_end) / 2,
-                (b$cds_end + 100) / 2),
+      x = c(
+        b$utr5_end / 2,
+        (b$utr5_end + b$cds_end) / 2,
+        (b$cds_end + 100) / 2
+      ),
       label = c("5'UTR", "CDS", "3'UTR"),
       stringsAsFactors = FALSE
     )
@@ -271,7 +280,7 @@ plot_metagene <- function(analyzer,
   p <- ggplot2::ggplot(
     plot_df,
     ggplot2::aes(x = .data$position, y = .data$density,
-                 color = .data$sample, group = .data$sample)
+                 color = .data$series, group = .data$series)
   )
 
   if (!is.null(region_df)) {
@@ -293,18 +302,17 @@ plot_metagene <- function(analyzer,
     )
   }
 
-  if (show_ci && any(!is.na(plot_df$ci_lower))) {
-    p <- p +
-      ggplot2::geom_ribbon(
-        ggplot2::aes(ymin = .data$ci_lower, ymax = .data$ci_upper,
-                     fill = .data$sample),
-        alpha = 0.15, color = NA
-      ) +
-      ggplot2::scale_fill_manual(
-        values = stats::setNames(colors, sample_cols), guide = "none")
-  }
-
   p <- p + ggplot2::geom_line(linewidth = 1.1, alpha = 0.95)
+
+  if (length(target_cols) == 1L && identical(target_cols, "count")) {
+    p <- p + ggplot2::geom_area(
+      inherit.aes = FALSE,
+      data = plot_df,
+      ggplot2::aes(x = .data$position, y = .data$density),
+      fill = colors[[1L]],
+      alpha = 0.15
+    )
+  }
 
   if (!is.null(label_df)) {
     p <- p + ggplot2::annotate(
@@ -316,39 +324,41 @@ plot_metagene <- function(analyzer,
     )
   }
 
-  if (length(sample_cols) == 1L) {
+  if (length(target_cols) == 1L) {
     p <- p + ggplot2::scale_color_manual(
-      values = stats::setNames(colors, sample_cols), guide = "none")
+      values = stats::setNames(colors, plot_labels),
+      guide = "none"
+    )
   } else {
     p <- p + ggplot2::scale_color_manual(
-      values = stats::setNames(colors, sample_cols), name = "Sample")
+      values = stats::setNames(colors, plot_labels),
+      name = "Series"
+    )
   }
 
   p <- p +
     ggplot2::scale_x_continuous(
-      name   = "Normalized Transcript Position (5'UTR \u2192 CDS \u2192 3'UTR)",
+      name = "Normalized Transcript Position (5'UTR -> CDS -> 3'UTR)",
       breaks = seq(0, 100, 20),
       expand = ggplot2::expansion(mult = c(0.01, 0.01))
     ) +
     ggplot2::scale_y_continuous(
-      name   = "Modification Density",
+      name = .metagene_y_label(target_cols),
       expand = ggplot2::expansion(mult = c(0.02, 0.08))
     ) +
     ggplot2::ggtitle(title) +
     ggplot2::theme_bw(base_size = 13) +
     ggplot2::theme(
-      plot.title        = ggplot2::element_text(hjust = 0.5, face = "bold",
-                                                size = 14),
-      axis.title        = ggplot2::element_text(size = 12),
-      axis.text         = ggplot2::element_text(size = 10, color = "#333333"),
-      panel.grid.major  = ggplot2::element_blank(),
-      panel.grid.minor  = ggplot2::element_blank(),
-      panel.border      = ggplot2::element_rect(color = "#AAAAAA"),
-      legend.position   = if (length(sample_cols) > 1L) "right" else "none",
-      legend.background = ggplot2::element_rect(fill = "white",
-                                                color = "#CCCCCC"),
-      legend.key.width  = ggplot2::unit(1.2, "cm"),
-      plot.margin       = ggplot2::margin(10, 15, 10, 10)
+      plot.title = ggplot2::element_text(hjust = 0.5, face = "bold", size = 14),
+      axis.title = ggplot2::element_text(size = 12),
+      axis.text = ggplot2::element_text(size = 10, color = "#333333"),
+      panel.grid.major = ggplot2::element_blank(),
+      panel.grid.minor = ggplot2::element_blank(),
+      panel.border = ggplot2::element_rect(color = "#AAAAAA"),
+      legend.position = if (length(target_cols) > 1L) "right" else "none",
+      legend.background = ggplot2::element_rect(fill = "white", color = "#CCCCCC"),
+      legend.key.width = ggplot2::unit(1.2, "cm"),
+      plot.margin = ggplot2::margin(10, 15, 10, 10)
     )
 
   if (!is.null(output_file)) {
@@ -374,8 +384,9 @@ plot_metagene <- function(analyzer,
 #'
 #' @export
 get_metagene_summary <- function(analyzer) {
-  if (!inherits(analyzer, "MetageneAnalyzer"))
-    stop("`analyzer` must be a MetageneAnalyzer object.")
+  if (!inherits(analyzer, "MetageneAnalyzer")) {
+    stop("`analyzer` must be a MetageneAnalyzer object.", call. = FALSE)
+  }
 
   if (is.null(analyzer$mapped_res)) {
     msg <- "No mapped data available."
@@ -383,16 +394,15 @@ get_metagene_summary <- function(analyzer) {
     return(invisible(msg))
   }
 
-  dt     <- analyzer$mapped_res$data
+  dt <- analyzer$mapped_res$data
   splits <- analyzer$mapped_res$splits
 
-  total_sites  <- nrow(analyzer$annotated_df)
+  total_sites <- nrow(analyzer$sites_df %||% analyzer$annotated_df)
   mapped_sites <- length(unique(dt$site_id))
 
   dt[, region := cut(
     feature_pos,
-    breaks = c(-0.01, splits[[1]],
-               splits[[1]] + splits[[2]], 1.01),
+    breaks = c(-0.01, splits[[1]], splits[[1]] + splits[[2]], 1.01),
     labels = c("5'UTR", "CDS", "3'UTR")
   )]
   region_ct <- dt[, .(count = sum(feature_weight)), by = region][order(region)]
@@ -426,36 +436,78 @@ get_metagene_summary <- function(analyzer) {
 # Internal helpers
 # -------------------------------------------------------------------------
 
-#' Auto-detect sample columns in a metagene data.frame
-#'
-#' Excludes well-known annotation and coordinate columns; retains columns
-#' that have a paired `depth_<col>` column or whose names match typical
-#' sample-name patterns.
-#'
-#' @param df `data.frame` or `data.table`.
-#' @return Character vector of candidate sample column names.
+#' Resolve metagene site input
 #' @keywords internal
-.detect_metagene_sample_cols <- function(df) {
-  all_cols <- colnames(df)
-
-  fixed_cols <- c(
-    "chrom", "pos", "ref", "strand", "motif", "site_id",
-    "gene_id", "gene_name", "gene_type", "genomic_region",
-    "transcript_ids", "tx_name", "distance_to_gene"
-  )
-  depth_cols <- grep("^depth_", all_cols, value = TRUE)
-  candidates <- setdiff(all_cols, c(fixed_cols, depth_cols))
-
-  sample_cols <- character(0L)
-  for (col in candidates) {
-    if (paste0("depth_", col) %in% all_cols) {
-      sample_cols <- c(sample_cols, col)
-    } else if (grepl("Sample|sample|S[0-9]|rep|PU|NC", col)) {
-      sample_cols <- c(sample_cols, col)
-    }
+.resolve_metagene_sites_df <- function(sites_df = NULL, annotated_df = NULL) {
+  if (is.null(sites_df) && is.null(annotated_df)) {
+    stop("Supply `sites_df` to `new_metagene_analyzer()`.", call. = FALSE)
   }
+  if (is.null(sites_df)) {
+    warning("`annotated_df` is deprecated; use `sites_df` instead.", call. = FALSE)
+    sites_df <- annotated_df
+  }
+  sites_df
+}
 
-  unique(sample_cols)
+
+#' Normalise metagene weight columns
+#' @keywords internal
+.normalize_metagene_weight_cols <- function(weight_cols, df) {
+  if (is.null(weight_cols)) {
+    return(character(0))
+  }
+  weight_cols <- unique(as.character(weight_cols))
+  weight_cols <- intersect(weight_cols, colnames(df))
+  if (length(weight_cols) == 0L) {
+    warning("No valid `weight_cols` were found; returning only `count`.",
+            call. = FALSE)
+  }
+  weight_cols
+}
+
+
+#' Return metagene profile columns
+#' @keywords internal
+.metagene_profile_columns <- function(profile_data) {
+  cols <- setdiff(colnames(profile_data), c("bin", "position"))
+  cols[cols == "count" | startsWith(cols, "count_")]
+}
+
+
+#' Human-readable labels for metagene series
+#' @keywords internal
+.metagene_series_labels <- function(cols) {
+  ifelse(cols == "count", "count", sub("^count_", "", cols))
+}
+
+
+#' Default title for metagene plots
+#' @keywords internal
+.metagene_default_title <- function(cols) {
+  if (length(cols) == 1L && identical(cols, "count")) {
+    return("Metagene Weighted Site Count")
+  }
+  "Metagene Weighted Signals"
+}
+
+
+#' Y-axis label for metagene plots
+#' @keywords internal
+.metagene_y_label <- function(cols) {
+  if (all(cols == "count")) {
+    return("Weighted Site Count")
+  }
+  if ("count" %in% cols) {
+    return("Weighted Count / Signal")
+  }
+  "Weighted Signal"
+}
+
+
+#' Provide a default when x is NULL
+#' @keywords internal
+`%||%` <- function(x, y) {
+  if (is.null(x)) y else x
 }
 
 

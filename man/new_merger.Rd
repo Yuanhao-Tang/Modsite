@@ -14,7 +14,7 @@ new_merger(
   group_missing_threshold = 0.5,
   keep_all_zero_rows = FALSE,
   min_group_mean_rate = 0.05,
-  group_filter_strategy = "any",
+  group_filter_strategy = "all",
   custom_calc_func = NULL
 )
 }
