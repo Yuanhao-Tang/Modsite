@@ -7,3 +7,4 @@
 modsite.Rcheck/
 *.tar.gz
 .ipynb_checkpoints/
+LEGACY_SOURCES.md
