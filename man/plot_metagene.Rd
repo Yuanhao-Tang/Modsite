@@ -2,7 +2,7 @@
 % Please edit documentation in R/metagene.R
 \name{plot_metagene}
 \alias{plot_metagene}
-\title{Plot a metagene density profile}
+\title{Plot a metagene profile}
 \usage{
 plot_metagene(
   analyzer,
@@ -25,17 +25,15 @@ plot_metagene(
 Use `"count"` for the default weighted site-count track; weighted columns
 are referred to by their original column names.}
 
-\item{title}{Plot title.  Auto-generated when `NULL`.}
+\item{title}{Plot title. Auto-generated when `NULL`.}
 
-\item{colors}{Named or unnamed character vector of line colours.
-Auto-selected when `NULL`.}
+\item{colors}{Named or unnamed character vector of line colours.}
 
-\item{output_file}{File path for saving the plot via [ggplot2::ggsave()].
-No file is written when `NULL` (default).}
+\item{output_file}{File path for saving the plot via [ggplot2::ggsave()].}
 
-\item{width, height}{Plot dimensions in inches (default 10 × 5).}
+\item{width, height}{Plot dimensions in inches (default 10 x 5).}
 
-\item{dpi}{Resolution for saved file.  Default 300.}
+\item{dpi}{Resolution for saved file. Default 300.}
 
 \item{sample_to_plot}{Deprecated compatibility alias for `series_to_plot`.}
 

@@ -2,7 +2,7 @@
 #
 # Provides run_glmm_bayes(): a site-by-site hierarchical beta-binomial model
 # with empirical-Bayes hyperparameter updates and Laplace-approximate posterior
-# summaries. The exported interface mirrors run_dss() so downstream code can
+# summaries. The exported interface mirrors run_glmm() so downstream code can
 # consume the same top-level slots.
 
 
@@ -10,61 +10,10 @@
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-#' Robust scale estimate with hard floor and ceiling.
-#'
-#' Uses MAD (median absolute deviation, scaled to be consistent with the SD
-#' under normality) instead of `sd()` so that a few extreme sites cannot
-#' inflate the empirical-Bayes prior SD to absurd values (e.g. 1e6 on the
-#' logit scale, which we have observed in practice with small per-site
-#' sample sizes and quasi-separation).
-#'
-#' Falls back to a robust SD (`sd(x, trim=0.05)` style) only if MAD is zero
-#' (all values inside the median ± epsilon), which can happen when most
-#' sites' modes are pinned to the prior mean by a strong prior.
-#'
-#' @param x Numeric vector.
-#' @param floor Lower clamp.
-#' @param ceiling Upper clamp. Use `Inf` to disable.
 #' @keywords internal
-.bayes_safe_sd <- function(x, floor = 0.1, ceiling = Inf) {
-  x <- x[is.finite(x)]
-  if (length(x) < 2L) return(floor)
-  s <- stats::mad(x, constant = 1.4826, na.rm = TRUE)
-  if (!is.finite(s) || s < .Machine$double.eps) {
-    # MAD collapsed to zero (e.g. >50% of values identical). Fall back to a
-    # trimmed SD which is still much more robust than the raw SD.
-    qs <- stats::quantile(x, c(0.05, 0.95), na.rm = TRUE, names = FALSE)
-    x_trim <- x[x >= qs[1] & x <= qs[2]]
-    s <- if (length(x_trim) >= 2L) stats::sd(x_trim) else stats::sd(x)
-  }
-  if (!is.finite(s) || is.na(s)) return(floor)
-  if (s < floor) return(floor)
-  if (s > ceiling) return(ceiling)
-  s
-}
-
-
-#' Symmetric quantile-based winsorization.
-#'
-#' Used in the empirical-Bayes update so a handful of degenerate per-site
-#' modes (e.g. |beta| in the 1e3-1e6 range from quasi-separation) cannot
-#' propagate into the prior SD update of the *next* iteration. The original
-#' per-site modes are kept untouched in the per-site outputs; only the
-#' aggregated hyperparameter estimates use the winsorized vector.
-#'
-#' @param x Numeric vector.
-#' @param q Two-element numeric in (0, 0.5). Lower / upper trimming
-#'   probability. Symmetric defaults `c(0.01, 0.99)`.
-#' @keywords internal
-.bayes_winsorize <- function(x, q = c(0.01, 0.99)) {
-  if (!is.numeric(x) || length(x) == 0L) return(x)
-  ok <- is.finite(x)
-  if (sum(ok) < 2L) return(x)
-  qs <- stats::quantile(x[ok], q, na.rm = TRUE, names = FALSE)
-  if (!all(is.finite(qs)) || qs[1] >= qs[2]) return(x)
-  out <- x
-  out[ok] <- pmin(pmax(x[ok], qs[1]), qs[2])
-  out
+.bayes_safe_sd <- function(x, floor = 0.1) {
+  s <- stats::sd(x, na.rm = TRUE)
+  if (!is.finite(s) || is.na(s) || s < floor) floor else s
 }
 
 
@@ -166,7 +115,6 @@
   site_id_val <- site_data$site_id[[1L]]
   site_meta <- site_data[1L, site_meta_cols, drop = FALSE]
 
-  par_len <- length(coef_names) + length(random_names) + 1L
   make_failure <- function(error_msg) {
     list(
       tidy = .bayes_build_failure_tidy(
@@ -176,12 +124,10 @@
         primary_coef_name = primary_coef_name,
         error_msg = error_msg
       ),
-      par_mode = rep(NA_real_, par_len),
+      par_mode = rep(NA_real_, length(coef_names) + length(random_names) + 1L),
       coef_mode = stats::setNames(rep(NA_real_, length(coef_names)), coef_names),
       random_mode = stats::setNames(rep(NA_real_, length(random_names)), random_names),
       log_phi_mode = NA_real_,
-      cov_diag = rep(NA_real_, par_len),
-      hessian_ok = FALSE,
       fit_ok = FALSE,
       model = NULL
     )
@@ -253,7 +199,6 @@
   tail_prob <- rep(NA_real_, length(coef_names))
   z_score <- rep(NA_real_, length(coef_names))
   cov_mat <- NULL
-  cov_diag_vec <- rep(NA_real_, par_len)
   hess_ok <- FALSE
 
   if (isTRUE(compute_posterior)) {
@@ -280,11 +225,7 @@
       inv_hess <- tryCatch(solve(hess), error = function(e) NULL)
       if (!is.null(inv_hess) && all(is.finite(inv_hess))) {
         cov_mat <- inv_hess
-        full_diag <- diag(inv_hess)
-        if (length(full_diag) == par_len) {
-          cov_diag_vec <- full_diag
-        }
-        diag_cov <- full_diag[seq_len(p)]
+        diag_cov <- diag(inv_hess)[seq_len(p)]
         ok_diag <- is.finite(diag_cov) & diag_cov > 0
         se_vec[ok_diag] <- sqrt(diag_cov[ok_diag])
         z_score[ok_diag] <- beta_mode[ok_diag] / se_vec[ok_diag]
@@ -339,8 +280,6 @@
     coef_mode = beta_mode,
     random_mode = random_mode,
     log_phi_mode = log_phi_mode,
-    cov_diag = cov_diag_vec,
-    hessian_ok = hess_ok,
     fit_ok = TRUE,
     model = model_obj
   )
@@ -350,9 +289,7 @@
 #' @keywords internal
 .prepare_glmm_bayes_data <- function(merger, fixed, random, primary_term,
                                      min_depth_site, min_samples_per_site,
-                                     phi_vars = NULL,
-                                     min_primary_per_level = 2L,
-                                     min_primary_sd = 1e-3) {
+                                     phi_vars = NULL) {
   if (!is.environment(merger)) {
     stop("`merger` must be an environment (MultiSampleMerger object).", call. = FALSE)
   }
@@ -572,62 +509,10 @@
   valid_sites <- dplyr::filter(site_counts, n_valid_samples >= min_samples_per_site)
   long_data <- dplyr::filter(long_data, site_id %in% valid_sites$site_id)
 
-  # ----------------------------------------------------------------------
-  # Per-site primary-term contrast filter (strategy C1).
-  #
-  # A site whose primary term has no usable contrast within its kept samples
-  # is unidentifiable for that coefficient. Forcing such sites through the
-  # MAP optimizer produces wildly extreme `beta` modes (often |beta| > 1e3
-  # on the logit scale) which then poison the empirical-Bayes prior SD
-  # update across all sites. Filtering them out up front is far cleaner
-  # than trying to detect-and-clamp downstream.
-  #
-  # For categorical (binary) primary: require at least
-  # `min_primary_per_level` samples in *each* level.
-  # For continuous primary: require the within-site SD of the primary
-  # variable to exceed `min_primary_sd` (defaults to 1e-3, i.e. essentially
-  # not constant).
-  # ----------------------------------------------------------------------
-  primary_vec_ld <- long_data[[primary_term]]
-  if (primary_is_continuous) {
-    site_primary_ok <- dplyr::summarise(
-      dplyr::group_by(long_data, site_id),
-      .primary_sd = stats::sd(as.numeric(.data[[primary_term]]), na.rm = TRUE),
-      .groups = "drop"
-    )
-    contrast_ok_ids <- site_primary_ok$site_id[
-      is.finite(site_primary_ok$.primary_sd) &
-        site_primary_ok$.primary_sd > min_primary_sd
-    ]
-  } else {
-    primary_levels <- levels(as.factor(primary_vec_ld))
-    site_primary_tab <- dplyr::summarise(
-      dplyr::group_by(long_data, site_id),
-      .n_lvl1 = sum(as.character(.data[[primary_term]]) == primary_levels[1L]),
-      .n_lvl2 = sum(as.character(.data[[primary_term]]) == primary_levels[2L]),
-      .groups = "drop"
-    )
-    contrast_ok_ids <- site_primary_tab$site_id[
-      site_primary_tab$.n_lvl1 >= min_primary_per_level &
-        site_primary_tab$.n_lvl2 >= min_primary_per_level
-    ]
-  }
-
-  n_before_contrast <- dplyr::n_distinct(long_data$site_id)
-  long_data <- dplyr::filter(long_data, site_id %in% contrast_ok_ids)
-  n_after_contrast <- dplyr::n_distinct(long_data$site_id)
-  n_dropped_contrast <- n_before_contrast - n_after_contrast
-  if (n_dropped_contrast > 0L) {
-    message(sprintf(
-      "[run_glmm_bayes] Dropped %d site(s) with no usable contrast in primary_term '%s' (categorical: <%d samples per level; continuous: SD <= %g).",
-      n_dropped_contrast, primary_term, min_primary_per_level, min_primary_sd
-    ))
-  }
-
   unique_site_ids <- unique(long_data$site_id)
   if (length(unique_site_ids) == 0L) {
     stop(
-      "No sites remain after filtering. Relax min_depth_site, min_samples_per_site, or min_primary_per_level / min_primary_sd.",
+      "No sites remain after filtering. Reduce min_depth_site or min_samples_per_site.",
       call. = FALSE
     )
   }
@@ -675,14 +560,24 @@
   }
 
   if (!is.null(phi_vars) && length(phi_vars) > 0L) {
-    warning(
-      "[run_glmm_bayes] `phi_vars` is deprecated and ignored. Using intercept-only log(phi) prior mean.",
-      call. = FALSE
+    phi_vars <- as.character(phi_vars)
+    missing_phi <- setdiff(phi_vars, colnames(merged_df))
+    if (length(missing_phi) > 0L) {
+      stop(sprintf(
+        "merged_data is missing phi_vars column(s): %s",
+        paste(missing_phi, collapse = ", ")
+      ), call. = FALSE)
+    }
+    phi_site_df <- merged_df[match(unique_site_ids, merged_df$site_id), c("site_id", phi_vars), drop = FALSE]
+    phi_formula <- stats::as.formula(
+      paste("~", paste(phi_vars, collapse = " + ")),
+      env = baseenv()
     )
+  } else {
+    phi_vars <- character(0)
+    phi_site_df <- data.frame(site_id = unique_site_ids, stringsAsFactors = FALSE)
+    phi_formula <- ~ 1
   }
-  phi_vars <- character(0)
-  phi_site_df <- data.frame(site_id = unique_site_ids, stringsAsFactors = FALSE)
-  phi_formula <- ~ 1
   phi_design_matrix <- stats::model.matrix(phi_formula, data = phi_site_df)
 
   list(
@@ -701,8 +596,7 @@
     primary_sd = primary_sd,
     phi_vars = phi_vars,
     phi_design_matrix = phi_design_matrix,
-    phi_term_names = colnames(phi_design_matrix),
-    n_dropped_contrast = n_dropped_contrast
+    phi_term_names = colnames(phi_design_matrix)
   )
 }
 
@@ -714,11 +608,11 @@
 #' Fit site-level hierarchical Bayesian beta-binomial GLMMs
 #'
 #' Fits a site-level beta-binomial model with hierarchical Gaussian priors on
-#' fixed-effect coefficients and an intercept-only prior mean on `log(phi)`.
+#' fixed-effect coefficients and a site-level regression prior on `log(phi)`.
 #' The implementation uses iterative empirical-Bayes updates with site-wise MAP
 #' optimization and a Laplace approximation for posterior standard deviations.
 #'
-#' The function mirrors [run_dss()] at the top level: it accepts the same
+#' The function mirrors [run_glmm()] at the top level: it accepts the same
 #' merger-centered data layout and returns the same slots
 #' (`primary_term_backfill`, `results_long`, `glmm_slot`, and `model_objects`).
 #' Additional Bayesian metadata are stored inside `glmm_slot`.
@@ -748,8 +642,8 @@
 #'   sites), or `"stop"` (stop immediately; requires `n_cores = 1`).
 #' @param or_extreme_threshold Absolute log-odds threshold used to flag extreme
 #'   posterior mean estimates. Default `10`. Set to `Inf` to disable.
-#' @param phi_vars Deprecated and ignored. `log(phi)` now uses an
-#'   intercept-only prior mean for stability.
+#' @param phi_vars Optional character vector of site-level covariates from
+#'   `merger$merged_data` used in the prior mean model for `log(phi)`.
 #' @param max_iter Maximum number of empirical-Bayes outer iterations.
 #' @param tol Convergence tolerance for the outer iteration.
 #' @param verbose Logical. Print iteration progress messages? Default `TRUE`.
@@ -760,29 +654,6 @@
 #' @param min_coef_sd Lower bound for coefficient prior SD updates.
 #' @param min_random_sd Lower bound for random-effect SD updates.
 #' @param min_phi_sd Lower bound for the `log(phi)` prior SD update.
-#' @param max_coef_sd Upper bound for coefficient prior SD updates. Defaults
-#'   to `5`. Prevents a few extreme per-site modes (e.g. from quasi-
-#'   separation) from inflating the prior SD across the entire EB loop. Set
-#'   to `Inf` to disable.
-#' @param max_random_sd Upper bound for random-effect SD updates. Default `5`.
-#' @param max_phi_sd Upper bound for the `log(phi)` prior SD update.
-#'   Default `5`.
-#' @param winsorize_q Length-2 numeric vector giving the lower and upper
-#'   quantile probabilities used to winsorize per-site posterior modes when
-#'   computing the empirical-Bayes hyperparameter updates. Default
-#'   `c(0.01, 0.99)`. Per-site outputs are unaffected.
-#' @param beta_extreme_threshold Sites whose absolute posterior-mode
-#'   coefficient exceeds this value (logit scale) are excluded from the
-#'   hyperparameter estimation step but retained in the per-site outputs
-#'   (and flagged via `or_extreme` if they also exceed `or_extreme_threshold`).
-#'   Default `20` (corresponds to OR > exp(20)).
-#' @param min_primary_per_level For categorical `primary_term`: minimum
-#'   number of samples required in each level *within* each site for the
-#'   site to be retained. Default `2`. Sites failing this filter are
-#'   unidentifiable for the primary coefficient.
-#' @param min_primary_sd For continuous `primary_term`: minimum within-site
-#'   SD of the primary covariate required to retain the site. Default
-#'   `1e-3`.
 #'
 #' @return A named list:
 #' \describe{
@@ -814,7 +685,7 @@
 #' head(out$primary_term_backfill)
 #' }
 #'
-#' @seealso [run_dss()], [new_diff_sites()]
+#' @seealso [run_glmm()], [estimate_phi_trend()], [new_diff_sites()]
 #' @export
 run_glmm_bayes <- function(
   merger,
@@ -865,38 +736,20 @@ run_glmm_bayes <- function(
   if (!is.numeric(tol) || length(tol) != 1L || is.na(tol) || tol <= 0) {
     stop("`tol` must be a positive numeric scalar.", call. = FALSE)
   }
-
-  validate_pos_scalar <- function(x, name) {
-    if (!is.numeric(x) || length(x) != 1L || is.na(x) || x <= 0) {
-      stop(sprintf("`%s` must be a positive numeric scalar.", name), call. = FALSE)
-    }
-  }
-  validate_pos_scalar(max_coef_sd, "max_coef_sd")
-  validate_pos_scalar(max_random_sd, "max_random_sd")
-  validate_pos_scalar(max_phi_sd, "max_phi_sd")
-  validate_pos_scalar(beta_extreme_threshold, "beta_extreme_threshold")
-  if (max_coef_sd < min_coef_sd) {
-    stop("`max_coef_sd` must be >= `min_coef_sd`.", call. = FALSE)
-  }
-  if (max_random_sd < min_random_sd) {
-    stop("`max_random_sd` must be >= `min_random_sd`.", call. = FALSE)
-  }
-  if (max_phi_sd < min_phi_sd) {
-    stop("`max_phi_sd` must be >= `min_phi_sd`.", call. = FALSE)
-  }
-  if (!is.numeric(winsorize_q) || length(winsorize_q) != 2L ||
-      any(!is.finite(winsorize_q)) ||
-      winsorize_q[1] < 0 || winsorize_q[2] > 1 ||
-      winsorize_q[1] >= winsorize_q[2]) {
-    stop("`winsorize_q` must be a numeric vector of length 2 with 0 <= q1 < q2 <= 1.",
-         call. = FALSE)
-  }
-  if (!is.numeric(min_primary_per_level) || length(min_primary_per_level) != 1L ||
-      is.na(min_primary_per_level) || min_primary_per_level < 1L) {
-    stop("`min_primary_per_level` must be a positive integer.", call. = FALSE)
-  }
-  min_primary_per_level <- as.integer(min_primary_per_level)
-  validate_pos_scalar(min_primary_sd, "min_primary_sd")
+  # Legacy implementation compatibility:
+  # These arguments are accepted so that newer call sites can run tests
+  # against the legacy fitter without "unused argument" failures. They are
+  # intentionally not used in this legacy code path.
+  legacy_compat_ignored <- list(
+    max_coef_sd = max_coef_sd,
+    max_random_sd = max_random_sd,
+    max_phi_sd = max_phi_sd,
+    winsorize_q = winsorize_q,
+    beta_extreme_threshold = beta_extreme_threshold,
+    min_primary_per_level = min_primary_per_level,
+    min_primary_sd = min_primary_sd
+  )
+  rm(legacy_compat_ignored)
 
   if (n_cores > 1L) {
     if (!requireNamespace("future", quietly = TRUE)) {
@@ -920,9 +773,7 @@ run_glmm_bayes <- function(
     primary_term = primary_term,
     min_depth_site = min_depth_site,
     min_samples_per_site = min_samples_per_site,
-    phi_vars = phi_vars,
-    min_primary_per_level = min_primary_per_level,
-    min_primary_sd = min_primary_sd
+    phi_vars = phi_vars
   )
 
   n_samples_for_slot <- length(unique(prep$long_data$sample_id))
@@ -1059,9 +910,8 @@ run_glmm_bayes <- function(
 
   if (isTRUE(verbose)) {
     message(sprintf(
-      "[run_glmm_bayes] Starting hierarchical MAP fitting for %d site(s) after contrast filtering (dropped=%d).",
-      length(unique_site_ids),
-      prep$n_dropped_contrast
+      "[run_glmm_bayes] Starting hierarchical MAP fitting for %d site(s).",
+      length(unique_site_ids)
     ))
   }
 
@@ -1100,49 +950,10 @@ run_glmm_bayes <- function(
       stop("All sites failed during hierarchical MAP fitting.", call. = FALSE)
     }
 
-    # B2: Exclude extreme-beta sites from hyperparameter estimation so they
-    # cannot destabilize the EB updates for all other sites.
-    extreme_sites <- ok_sites &
-      rowSums(abs(coef_mat) > beta_extreme_threshold, na.rm = TRUE) > 0
-    usable_sites <- ok_sites & !extreme_sites
-    n_extreme <- sum(extreme_sites)
-    n_usable <- sum(usable_sites)
-    if (n_usable == 0L) {
-      warning(
-        "[run_glmm_bayes] All fitted sites were flagged as extreme for hyperparameter updates; falling back to all fitted sites.",
-        call. = FALSE
-      )
-      usable_sites <- ok_sites
-      n_usable <- sum(usable_sites)
-      n_extreme <- 0L
-    }
-
-    coef_mat_hyper <- coef_mat[usable_sites, , drop = FALSE]
-    # A2: winsorize per-coefficient site modes before EB update.
-    coef_mat_winsor <- apply(coef_mat_hyper, 2, .bayes_winsorize, q = winsorize_q)
-    if (is.null(dim(coef_mat_winsor))) {
-      coef_mat_winsor <- matrix(
-        coef_mat_winsor,
-        nrow = nrow(coef_mat_hyper),
-        ncol = ncol(coef_mat_hyper),
-        byrow = FALSE
-      )
-      colnames(coef_mat_winsor) <- colnames(coef_mat_hyper)
-    }
-    n_winsorized <- sum(
-      is.finite(coef_mat_hyper) &
-        is.finite(coef_mat_winsor) &
-        (coef_mat_hyper != coef_mat_winsor)
-    )
-
-    coef_mean_new <- colMeans(coef_mat_winsor, na.rm = TRUE)
+    coef_mean_new <- colMeans(coef_mat[ok_sites, , drop = FALSE], na.rm = TRUE)
     names(coef_mean_new) <- coef_names
     coef_sd_new <- vapply(seq_along(coef_names), function(j) {
-      .bayes_safe_sd(
-        coef_mat_winsor[, j],
-        floor = min_coef_sd,
-        ceiling = max_coef_sd
-      )
+      .bayes_safe_sd(coef_mat[ok_sites, j], floor = min_coef_sd)
     }, numeric(1))
     names(coef_sd_new) <- coef_names
 
@@ -1150,9 +961,8 @@ run_glmm_bayes <- function(
       sigma_random_new <- vapply(random_terms, function(grp) {
         col_mask <- random_col_group == grp
         .bayes_safe_sd(
-          as.numeric(random_mat[usable_sites, col_mask, drop = FALSE]),
-          floor = min_random_sd,
-          ceiling = max_random_sd
+          as.numeric(random_mat[ok_sites, col_mask, drop = FALSE]),
+          floor = min_random_sd
         )
       }, numeric(1))
       names(sigma_random_new) <- random_terms
@@ -1160,30 +970,31 @@ run_glmm_bayes <- function(
       sigma_random_new <- numeric(0)
     }
 
-    phi_mean_new <- as.numeric(phi_design_matrix %*% delta)
-    phi_sd_new <- .bayes_safe_sd(
-      theta_vec[usable_sites] - phi_mean_new[usable_sites],
-      floor = min_phi_sd,
-      ceiling = max_phi_sd
-    )
+    W_ok <- phi_design_matrix[ok_sites, , drop = FALSE]
+    y_ok <- theta_vec[ok_sites]
+    ridge_lambda <- 1 / max(prior_sd_phi^2, 1e-8)
+    XtX <- crossprod(W_ok) + diag(ridge_lambda, ncol(W_ok))
+    Xty <- crossprod(W_ok, y_ok)
+    delta_new <- tryCatch(as.numeric(solve(XtX, Xty)), error = function(e) delta)
+    names(delta_new) <- phi_term_names
+    phi_mean_new <- as.numeric(phi_design_matrix %*% delta_new)
+    phi_sd_new <- .bayes_safe_sd(theta_vec[ok_sites] - phi_mean_new[ok_sites], floor = min_phi_sd)
 
     max_change <- max(
       abs(coef_mean_new - coef_mean),
       abs(log(coef_sd_new) - log(coef_sd)),
       if (length(sigma_random_new) > 0L) abs(log(sigma_random_new) - log(sigma_random)) else 0,
+      abs(delta_new - delta),
       abs(log(phi_sd_new) - log(phi_sd))
     )
 
     outer_history[[iter]] <- list(
       iter = iter,
       n_ok = n_ok,
-      n_usable = n_usable,
-      n_extreme = n_extreme,
-      n_winsorized = n_winsorized,
       coef_prior_mean = coef_mean_new,
       coef_prior_sd = coef_sd_new,
       sigma_random = sigma_random_new,
-      phi_prior_coef = delta,
+      phi_prior_coef = delta_new,
       phi_prior_sd = phi_sd_new,
       max_change = max_change
     )
@@ -1192,12 +1003,13 @@ run_glmm_bayes <- function(
     coef_sd <- coef_sd_new
     sigma_random <- sigma_random_new
     random_sd_by_col <- if (length(random_cols) > 0L) sigma_random[random_col_group] else numeric(0)
+    delta <- delta_new
     phi_sd <- phi_sd_new
 
     if (isTRUE(verbose)) {
       message(sprintf(
-        "[run_glmm_bayes] Iteration %d/%d: fitted=%d, usable=%d, extreme=%d, winsorized_cells=%d, max_change=%.4g",
-        iter, max_iter, n_ok, n_usable, n_extreme, n_winsorized, max_change
+        "[run_glmm_bayes] Iteration %d/%d: fitted=%d, max_change=%.4g",
+        iter, max_iter, n_ok, max_change
       ))
     }
 
@@ -1216,8 +1028,9 @@ run_glmm_bayes <- function(
     ), call. = FALSE)
   }
 
+  final_phi_prior_mean <- as.numeric(phi_design_matrix %*% delta)
   all_fit <- run_site_pass(
-    phi_prior_mean = as.numeric(phi_design_matrix %*% delta),
+    phi_prior_mean = final_phi_prior_mean,
     compute_posterior = TRUE,
     keep_models = isTRUE(return_models)
   )
@@ -1263,11 +1076,8 @@ run_glmm_bayes <- function(
     )
     for (col in prep$site_meta_cols) add_row[[col]] <- site_meta_tbl[[col]]
     add_row$is_primary <- TRUE
-    # Sites in this branch are missing the primary coefficient entirely from
-    # their posterior; they cannot supply a usable estimate / SE / p-value, so
-    # `fit_ok = FALSE` is the correct semantics for downstream filtering.
-    add_row$fit_ok <- FALSE
-    add_row$error_msg <- "primary_coef_missing"
+    add_row$fit_ok <- TRUE
+    add_row$error_msg <- NA_character_
     add_row$primary_match_error <- "primary_coef_missing"
     add_row$estimate_logodds <- NA_real_
     add_row$or <- NA_real_
@@ -1370,9 +1180,6 @@ run_glmm_bayes <- function(
     primary_sd = prep$primary_sd,
     min_depth_site = min_depth_site,
     min_samples_per_site = min_samples_per_site,
-    min_primary_per_level = min_primary_per_level,
-    min_primary_sd = min_primary_sd,
-    n_sites_dropped_no_primary_contrast = prep$n_dropped_contrast,
     adj_method = adj_method,
     on_error = on_error,
     n_sites = length(prep$unique_site_ids),
@@ -1381,25 +1188,12 @@ run_glmm_bayes <- function(
     random_effects = if (isTRUE(return_varcomp)) random_effects else NULL,
     phi_vars = prep$phi_vars,
     method = "hierarchical_map_laplace",
-    inference_note = paste(
-      "p.value stores a two-sided normal tail probability from the Laplace",
-      "approximation, not a frequentist Wald p-value. log(phi) uses an",
-      "intercept-only prior mean and phi_vars are ignored for stability.",
-      "All inference relies on the joint MAP being well-approximated by a",
-      "Gaussian, so",
-      "calibration may degrade for highly skewed posteriors (e.g. boundary",
-      "rates near 0/1, very small per-site sample sizes)."
-    ),
+    inference_note = "p.value stores a two-sided normal tail probability from the Laplace approximation",
     coef_prior_mean = coef_mean,
     coef_prior_sd = coef_sd,
-    max_coef_sd = max_coef_sd,
     sigma_random = sigma_random,
-    max_random_sd = max_random_sd,
     phi_prior_coef = delta,
     phi_prior_sd = phi_sd,
-    max_phi_sd = max_phi_sd,
-    winsorize_q = winsorize_q,
-    beta_extreme_threshold = beta_extreme_threshold,
     outer_history = outer_history,
     converged = converged
   )

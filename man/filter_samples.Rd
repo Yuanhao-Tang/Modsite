@@ -24,7 +24,10 @@ The (invisibly modified) `merger` object with samples removed from
 \description{
 Operates on `merger$merged_data`.  Samples whose fraction of `NA` sites
 exceeds `max_missing_rate` are dropped from the data, `$sample_names`,
-`$sample_files`, and `$condition`.
+`$sample_files`, and `$condition`. If `merger$sample_meta` is a
+`data.frame` with a `sample_id` column, the corresponding rows are also
+removed so downstream analyses (e.g. [run_glmm()], [run_glmm_bayes()])
+stay consistent.
 }
 \examples{
 \dontrun{

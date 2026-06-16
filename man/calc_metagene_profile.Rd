@@ -2,14 +2,9 @@
 % Please edit documentation in R/metagene.R
 \name{calc_metagene_profile}
 \alias{calc_metagene_profile}
-\title{Compute the metagene density profile}
+\title{Compute a metagene profile}
 \usage{
-calc_metagene_profile(
-  analyzer,
-  weight_cols = NULL,
-  smooth = TRUE,
-  span = 0.3
-)
+calc_metagene_profile(analyzer, weight_cols = NULL, smooth = TRUE, span = 0.3)
 }
 \arguments{
 \item{analyzer}{A `MetageneAnalyzer` object from [new_metagene_analyzer()].}
@@ -17,10 +12,10 @@ calc_metagene_profile(
 \item{weight_cols}{Optional character vector of numeric columns in `sites_df`
 to use as additional per-site weights.}
 
-\item{smooth}{Logical.  Apply spline smoothing.  Default `TRUE`.}
+\item{smooth}{Logical. Apply spline smoothing. Default `TRUE`.}
 
-\item{span}{Smoothing parameter for `smooth.spline(spar=)`.  Higher
-values produce smoother curves.  Default `0.3`.}
+\item{span}{Smoothing parameter for `smooth.spline(spar=)`. Higher values
+produce smoother curves. Default `0.3`.}
 }
 \value{
 The input `analyzer` with `profile_data` filled in.

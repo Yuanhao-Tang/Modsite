@@ -66,7 +66,8 @@ new_metagene_analyzer <- function(annotator,
     mapped_res = NULL,
     profile_data = NULL,
     region_boundaries = NULL,
-    weight_cols = NULL
+    weight_cols = NULL,
+    profile_filter_spec = NULL
   )
   class(obj) <- "MetageneAnalyzer"
 
@@ -108,6 +109,15 @@ new_metagene_analyzer <- function(annotator,
 #' @param analyzer A `MetageneAnalyzer` object from [new_metagene_analyzer()].
 #' @param weight_cols Optional character vector of numeric columns in `sites_df`
 #'   to use as additional per-site weights.
+#' @param sig_col Optional column name used for significance filtering before
+#'   binning (for example `"OS_adj_p.value"` or `"FDR"`).
+#' @param sig_threshold Numeric cutoff applied to `sig_col`. Default `0.05`.
+#' @param sig_op Comparison operator for significance filtering. One of
+#'   `"<"`, `"<="`, `">"`, or `">="`. Default `"<"`.
+#' @param keep_fit_ok Logical. If `TRUE`, keep only rows with `fit_ok == TRUE`
+#'   when the `fit_ok` column exists. Default `FALSE`.
+#' @param exclude_or_extreme Logical. If `TRUE`, drop rows with
+#'   `or_extreme == TRUE` when the `or_extreme` column exists. Default `FALSE`.
 #' @param smooth Logical. Apply spline smoothing. Default `TRUE`.
 #' @param span Smoothing parameter for `smooth.spline(spar=)`. Higher values
 #'   produce smoother curves. Default `0.3`.
@@ -122,6 +132,11 @@ new_metagene_analyzer <- function(annotator,
 #' @export
 calc_metagene_profile <- function(analyzer,
                                   weight_cols = NULL,
+                                  sig_col = NULL,
+                                  sig_threshold = 0.05,
+                                  sig_op = c("<", "<=", ">", ">="),
+                                  keep_fit_ok = FALSE,
+                                  exclude_or_extreme = FALSE,
                                   smooth = TRUE,
                                   span = 0.3) {
   if (!inherits(analyzer, "MetageneAnalyzer")) {
@@ -132,12 +147,22 @@ calc_metagene_profile <- function(analyzer,
          call. = FALSE)
   }
 
-  weight_cols <- .normalize_metagene_weight_cols(weight_cols, analyzer$mapped_res$data)
+  filtered_dt <- .metagene_apply_profile_filters(
+    dt = analyzer$mapped_res$data,
+    sig_col = sig_col,
+    sig_threshold = sig_threshold,
+    sig_op = sig_op,
+    keep_fit_ok = keep_fit_ok,
+    exclude_or_extreme = exclude_or_extreme
+  )
+  weight_cols <- .normalize_metagene_weight_cols(weight_cols, filtered_dt)
 
   message("Computing metagene profile (binning + smoothing)...")
 
+  profile_input <- analyzer$mapped_res
+  profile_input$data <- filtered_dt
   profile_dt <- .calculate_profile_dt(
-    mapped_res = analyzer$mapped_res,
+    mapped_res = profile_input,
     bin_number = analyzer$n_bins,
     weight_cols = weight_cols,
     smooth = smooth,
@@ -150,6 +175,13 @@ calc_metagene_profile <- function(analyzer,
 
   analyzer$profile_data <- as.data.frame(profile_dt)
   analyzer$weight_cols <- weight_cols
+  analyzer$profile_filter_spec <- list(
+    sig_col = sig_col,
+    sig_threshold = sig_threshold,
+    sig_op = if (is.null(sig_col)) NULL else match.arg(sig_op),
+    keep_fit_ok = keep_fit_ok,
+    exclude_or_extreme = exclude_or_extreme
+  )
   message("Done.")
   analyzer
 }
@@ -463,6 +495,65 @@ get_metagene_summary <- function(analyzer) {
             call. = FALSE)
   }
   weight_cols
+}
+
+
+#' Filter mapped rows before metagene profile computation
+#' @keywords internal
+.metagene_apply_profile_filters <- function(dt,
+                                            sig_col = NULL,
+                                            sig_threshold = 0.05,
+                                            sig_op = c("<", "<=", ">", ">="),
+                                            keep_fit_ok = FALSE,
+                                            exclude_or_extreme = FALSE) {
+  dt <- data.table::as.data.table(dt)
+  keep <- rep(TRUE, nrow(dt))
+
+  if (!is.null(sig_col)) {
+    if (!is.character(sig_col) || length(sig_col) != 1L || is.na(sig_col)) {
+      stop("`sig_col` must be a single column name or `NULL`.", call. = FALSE)
+    }
+    .check_cols(dt, sig_col, df_name = "mapped metagene data")
+    if (!is.numeric(sig_threshold) || length(sig_threshold) != 1L || is.na(sig_threshold)) {
+      stop("`sig_threshold` must be a single numeric value.", call. = FALSE)
+    }
+
+    sig_op <- match.arg(sig_op)
+    vals <- as.numeric(dt[[sig_col]])
+    cmp <- switch(
+      sig_op,
+      "<" = vals < sig_threshold,
+      "<=" = vals <= sig_threshold,
+      ">" = vals > sig_threshold,
+      ">=" = vals >= sig_threshold
+    )
+    cmp[!is.finite(vals)] <- FALSE
+    keep <- keep & cmp
+  }
+
+  if (isTRUE(keep_fit_ok)) {
+    if ("fit_ok" %in% names(dt)) {
+      keep <- keep & (dt$fit_ok %in% TRUE)
+    } else {
+      warning("`keep_fit_ok = TRUE` ignored because `fit_ok` is absent.",
+              call. = FALSE)
+    }
+  }
+
+  if (isTRUE(exclude_or_extreme)) {
+    if ("or_extreme" %in% names(dt)) {
+      keep <- keep & !(dt$or_extreme %in% TRUE)
+    } else {
+      warning("`exclude_or_extreme = TRUE` ignored because `or_extreme` is absent.",
+              call. = FALSE)
+    }
+  }
+
+  out <- dt[keep]
+  if (nrow(out) == 0L) {
+    stop("No rows remain after applying metagene profile filters.", call. = FALSE)
+  }
+  out
 }
 
 

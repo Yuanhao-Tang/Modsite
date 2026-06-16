@@ -108,6 +108,158 @@ utils::globalVariables(c(
   candidates[paste0("depth_", candidates) %in% colnames(df)]
 }
 
+#' Build a pure modification-rate table from merged data
+#'
+#' Keeps site identity columns (`site_id`, `chrom`, `pos`, `ref`) and sample
+#' rate columns only (drops all `depth_*` columns). Missing values in sample
+#' columns are imputed globally or within groups.
+#'
+#' Imputation scope:
+#' - `"auto"` (default): use within-group when `condition` is non-numeric;
+#'   use global when `condition` is numeric or `NULL`.
+#' - `"within_group"`: group-wise imputation; falls back to global when
+#'   `condition` is numeric.
+#' - `"global"`: site-wise global imputation across all samples.
+#'
+#' @param merged_df A merged site `data.frame` (typically `merger$merged_data`).
+#' @param sample_names Optional character vector of sample rate column names.
+#'   If `NULL`, sample columns are auto-detected via [.detect_sample_cols()].
+#' @param condition Optional vector aligned to `sample_names`. Used for
+#'   within-group imputation.
+#' @param impute_method One of `"mean"` (default) or `"median"`.
+#' @param impute_scope One of `"auto"` (default), `"within_group"`, `"global"`.
+#' @return A `data.frame` with columns `site_id`, `chrom`, `pos`, `ref`, then
+#'   sample rate columns with imputed values. Site columns are unchanged.
+#' @keywords internal
+make_pure_rate_table <- function(
+    merged_df,
+    sample_names = NULL,
+    condition = NULL,
+    impute_method = c("mean", "median"),
+    impute_scope = c("auto", "within_group", "global")
+) {
+  impute_method <- match.arg(impute_method)
+  impute_scope <- match.arg(impute_scope)
+
+  if (!is.data.frame(merged_df)) {
+    stop("`merged_df` must be a data.frame.", call. = FALSE)
+  }
+
+  .check_cols(merged_df, c("chrom", "pos", "ref"), "merged_df")
+  if (!"site_id" %in% colnames(merged_df)) {
+    merged_df$site_id <- .make_site_id(merged_df)
+  }
+
+  if (is.null(sample_names)) {
+    sample_names <- .detect_sample_cols(merged_df)
+  }
+  if (length(sample_names) == 0L) {
+    stop("No sample rate columns found in `merged_df`.", call. = FALSE)
+  }
+
+  .check_cols(merged_df, sample_names, "merged_df")
+  non_numeric <- sample_names[!vapply(merged_df[sample_names], is.numeric, logical(1))]
+  if (length(non_numeric) > 0L) {
+    stop(sprintf(
+      "Sample column(s) must be numeric: %s",
+      paste(non_numeric, collapse = ", ")
+    ), call. = FALSE)
+  }
+
+  scope_use <- "global"
+  if (!is.null(condition)) {
+    if (length(condition) != length(sample_names)) {
+      stop("`condition` length must match `sample_names` length.", call. = FALSE)
+    }
+    if (impute_scope == "auto") {
+      scope_use <- if (is.numeric(condition)) "global" else "within_group"
+    } else {
+      scope_use <- impute_scope
+    }
+    if (scope_use == "within_group" && is.numeric(condition)) {
+      message(
+        "`condition` is numeric; falling back from within-group to global ",
+        "imputation."
+      )
+      scope_use <- "global"
+    }
+  } else if (impute_scope != "auto") {
+    scope_use <- impute_scope
+  }
+
+  mod_matrix <- data.matrix(merged_df[, sample_names, drop = FALSE])
+
+  .impute_global <- function(x) {
+    if (all(is.na(x))) {
+      return(rep(0, length(x)))
+    }
+    fill_val <- if (impute_method == "mean") {
+      mean(x, na.rm = TRUE)
+    } else {
+      stats::median(x, na.rm = TRUE)
+    }
+    if (is.na(fill_val)) {
+      fill_val <- 0
+    }
+    x[is.na(x)] <- fill_val
+    x
+  }
+
+  .impute_by_group <- function(x, groups) {
+    if (all(is.na(x))) {
+      return(rep(0, length(x)))
+    }
+    out <- x
+    groups_chr <- as.character(groups)
+    groups_chr[is.na(groups_chr)] <- "__NA_GROUP__"
+
+    global_fill <- if (impute_method == "mean") {
+      mean(x, na.rm = TRUE)
+    } else {
+      stats::median(x, na.rm = TRUE)
+    }
+    if (is.na(global_fill)) {
+      global_fill <- 0
+    }
+
+    for (g in unique(groups_chr)) {
+      idx <- which(groups_chr == g)
+      fill_val <- if (impute_method == "mean") {
+        mean(out[idx], na.rm = TRUE)
+      } else {
+        stats::median(out[idx], na.rm = TRUE)
+      }
+      if (is.na(fill_val)) {
+        fill_val <- global_fill
+      }
+      miss <- is.na(out[idx])
+      if (any(miss)) {
+        out[idx[miss]] <- fill_val
+      }
+    }
+    out[is.na(out)] <- global_fill
+    out
+  }
+
+  mod_imputed <- t(apply(mod_matrix, 1L, function(x) {
+    if (scope_use == "within_group") {
+      return(.impute_by_group(x, condition))
+    }
+    .impute_global(x)
+  }))
+
+  site_cols <- c("site_id", "chrom", "pos", "ref")
+  out <- cbind(
+    merged_df[, site_cols, drop = FALSE],
+    as.data.frame(mod_imputed, stringsAsFactors = FALSE)
+  )
+  colnames(out)[(length(site_cols) + 1L):ncol(out)] <- sample_names
+  out
+}
+
+# Backward-compatible internal alias.
+.make_pure_rate_table <- make_pure_rate_table
+
 
 # ---------------------------------------------------------------------------
 # Parameter validation helpers

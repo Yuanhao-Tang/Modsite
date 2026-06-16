@@ -4,7 +4,12 @@
 \alias{.map_sites_to_metagene}
 \title{Map modification sites onto normalised transcript coordinates}
 \usage{
-.map_sites_to_metagene(annotator, sites_df, split_strategy = "median")
+.map_sites_to_metagene(
+  annotator,
+  sites_df,
+  split_strategy = "median",
+  keep_cols = NULL
+)
 }
 \arguments{
 \item{annotator}{A `GenomicAnnotator` object.}
@@ -14,6 +19,9 @@ optionally `strand`.  Additional columns (sample values) are carried
 through unchanged.}
 
 \item{split_strategy}{Passed to `.calculate_region_splits()`.}
+
+\item{keep_cols}{Optional character vector of columns from `sites_df` to carry
+into the mapped output. When `NULL`, all original columns are retained.}
 }
 \value{
 A named list with two elements:

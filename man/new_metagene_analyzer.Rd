@@ -23,8 +23,8 @@ weights.}
 
 \item{annotated_df}{Deprecated compatibility alias for `sites_df`.}
 
-\item{n_bins}{Number of equal-width bins across the normalised
-coordinate [0, 1].  Default `100`.}
+\item{n_bins}{Number of equal-width bins across the normalised coordinate
+[0, 1]. Default `100`.}
 
 \item{split_strategy}{Strategy for computing region proportions: `"median"`
 (default) or `"mean"`.}

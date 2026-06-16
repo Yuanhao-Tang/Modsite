@@ -360,7 +360,7 @@ run_glmm <- function(
 
   # ---- Validate sample rate / depth columns ----
   merged_df <- merger$merged_data
-  sample_ids <- sample_meta$sample_id
+  sample_ids <- as.character(sample_meta$sample_id)
   miss_rate  <- setdiff(sample_ids, colnames(merged_df))
   miss_depth <- setdiff(paste0("depth_", sample_ids), colnames(merged_df))
   if (length(miss_rate) > 0L || length(miss_depth) > 0L) {

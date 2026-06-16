@@ -253,6 +253,99 @@ test_that("filter_samples() auto_merge=FALSE errors when merged_data is NULL", {
   )
 })
 
+test_that("filter_samples() also filters sample_meta rows by sample_id", {
+  pileupC <- data.frame(
+    chrom = paste0("chr", 1:10),
+    pos   = 100L,
+    ref   = "A",
+    depth = 100L,
+    A = 0L, C = 20L, G = 0L, T = 80L,
+    strand = "+",
+    stringsAsFactors = FALSE
+  )
+  pileupD <- data.frame(
+    chrom = paste0("chr", 1:10),
+    pos   = 100L,
+    ref   = "A",
+    depth = 1L,
+    A = 0L, C = 0L, G = 0L, T = 1L,
+    strand = "+",
+    stringsAsFactors = FALSE
+  )
+  fC <- .write_pileup(pileupC)
+  fD <- .write_pileup(pileupD)
+
+  m <- modsite:::new_merger(
+    sample_files          = c(fC, fD),
+    condition             = c("ctrl", "trt"),
+    sample_names          = c("good", "bad"),
+    min_depth             = 10L,
+    min_group_mean_rate   = 0.0,
+    min_modification_rate = 0.0,
+    keep_all_zero_rows    = TRUE
+  )
+  m$sample_meta <- data.frame(
+    sample_id = c("good", "bad"),
+    group     = c("ctrl", "trt"),
+    age       = c(30, 45),
+    stringsAsFactors = FALSE
+  )
+
+  modsite:::merge_samples(m)
+  modsite:::filter_samples(m, max_missing_rate = 0.5)
+
+  expect_equal(m$sample_names, "good")
+  expect_equal(nrow(m$sample_meta), 1L)
+  expect_equal(m$sample_meta$sample_id, "good")
+  expect_equal(m$sample_meta$group, "ctrl")
+})
+
+test_that("filter_samples() warns when sample_meta has no sample_id column", {
+  pileupC <- data.frame(
+    chrom = paste0("chr", 1:10),
+    pos   = 100L,
+    ref   = "A",
+    depth = 100L,
+    A = 0L, C = 20L, G = 0L, T = 80L,
+    strand = "+",
+    stringsAsFactors = FALSE
+  )
+  pileupD <- data.frame(
+    chrom = paste0("chr", 1:10),
+    pos   = 100L,
+    ref   = "A",
+    depth = 1L,
+    A = 0L, C = 0L, G = 0L, T = 1L,
+    strand = "+",
+    stringsAsFactors = FALSE
+  )
+  fC <- .write_pileup(pileupC)
+  fD <- .write_pileup(pileupD)
+
+  m <- modsite:::new_merger(
+    sample_files          = c(fC, fD),
+    condition             = c("ctrl", "trt"),
+    sample_names          = c("good", "bad"),
+    min_depth             = 10L,
+    min_group_mean_rate   = 0.0,
+    min_modification_rate = 0.0,
+    keep_all_zero_rows    = TRUE
+  )
+  bad_meta <- data.frame(
+    name  = c("good", "bad"),
+    group = c("ctrl", "trt"),
+    stringsAsFactors = FALSE
+  )
+  m$sample_meta <- bad_meta
+  modsite:::merge_samples(m)
+
+  expect_warning(
+    modsite:::filter_samples(m, max_missing_rate = 0.5),
+    regexp = "sample_id"
+  )
+  expect_identical(m$sample_meta, bad_meta)
+})
+
 
 # ---------------------------------------------------------------------------
 # save_merged() and merger_summary()

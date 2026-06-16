@@ -14,7 +14,10 @@
   midpoint,
   show_numbers = FALSE,
   limits = NULL,
-  subtitle = NULL
+  subtitle = NULL,
+  axis_labels = NULL,
+  top_band_colors = NULL,
+  right_band_colors = NULL
 )
 }
 \description{

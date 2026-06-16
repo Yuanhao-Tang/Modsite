@@ -190,7 +190,10 @@ merge_samples <- function(merger) {
 #'
 #' Operates on `merger$merged_data`.  Samples whose fraction of `NA` sites
 #' exceeds `max_missing_rate` are dropped from the data, `$sample_names`,
-#' `$sample_files`, and `$condition`.
+#' `$sample_files`, and `$condition`. If `merger$sample_meta` is a
+#' `data.frame` with a `sample_id` column, the corresponding rows are also
+#' removed so downstream analyses (e.g. [run_dss()], [run_glmm_bayes()])
+#' stay consistent.
 #'
 #' @param merger A `MergeSamples` object.  [merge_samples()] must have been
 #'   called first (or set `auto_merge = TRUE`).
@@ -235,9 +238,19 @@ filter_samples <- function(merger, max_missing_rate = 0.5, auto_merge = TRUE) {
 
   message(sprintf("Checking sample missing-rate (threshold: %.2f) ...", max_missing_rate))
 
+  n_sites <- nrow(df)
+  if (n_sites == 0L) {
+    message(
+      "  Merged table has 0 sites; treating every sample as 100% missing. ",
+      "Consider relaxing upstream filters in merge_samples()."
+    )
+  }
+
   for (i in seq_along(merger$sample_names)) {
-    s    <- merger$sample_names[i]
-    rate <- mean(is.na(df[[s]]))
+    s   <- merger$sample_names[i]
+    col <- df[[s]]
+    rate <- if (is.null(col) || length(col) == 0L) 1 else mean(is.na(col))
+    if (is.nan(rate) || is.na(rate)) rate <- 1
     if (rate <= max_missing_rate) {
       keep_idx <- c(keep_idx, i)
     } else {
@@ -261,6 +274,36 @@ filter_samples <- function(merger, max_missing_rate = 0.5, auto_merge = TRUE) {
   merger$sample_names  <- keep_names
   merger$sample_files  <- merger$sample_files[keep_idx]
   merger$condition     <- merger$condition[keep_idx]
+
+  # Keep optional sample_meta in sync, matched by sample_id.
+  if (!is.null(merger$sample_meta)) {
+    if (!is.data.frame(merger$sample_meta)) {
+      warning(
+        "`merger$sample_meta` is not a data.frame; leaving it unchanged.",
+        call. = FALSE
+      )
+    } else if (!"sample_id" %in% colnames(merger$sample_meta)) {
+      warning(
+        "`merger$sample_meta` has no `sample_id` column; leaving it ",
+        "unchanged. You may need to filter it manually to match the ",
+        "remaining samples.",
+        call. = FALSE
+      )
+    } else {
+      meta     <- merger$sample_meta
+      meta_ids <- as.character(meta$sample_id)
+      keep_row <- meta_ids %in% keep_names
+      missing_in_meta <- setdiff(keep_names, meta_ids)
+      if (length(missing_in_meta) > 0L) {
+        warning(sprintf(
+          "Sample(s) kept after filtering but absent from `sample_meta$sample_id`: %s",
+          paste(missing_in_meta, collapse = ", ")
+        ), call. = FALSE)
+      }
+      merger$sample_meta <- meta[keep_row, , drop = FALSE]
+      rownames(merger$sample_meta) <- NULL
+    }
+  }
 
   message(sprintf(
     "  Removed %d sample(s); %d sample(s) remain.",

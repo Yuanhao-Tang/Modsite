@@ -181,6 +181,45 @@ test_that("calc_metagene_profile stores selected weight columns", {
   expect_equal(analyzer$profile_data$count_sC, c(1.1, 0.8))
 })
 
+test_that("calc_metagene_profile filters rows by significance column", {
+  analyzer <- calc_metagene_profile(
+    make_test_analyzer(),
+    sig_col = "group_p.value",
+    sig_threshold = 0.05,
+    smooth = FALSE
+  )
+
+  expect_equal(analyzer$profile_data$count, c(1, 0.5))
+  expect_equal(analyzer$profile_filter_spec$sig_col, "group_p.value")
+  expect_equal(analyzer$profile_filter_spec$sig_op, "<")
+})
+
+test_that("calc_metagene_profile supports fit_ok and or_extreme filters", {
+  custom_mapped <- make_test_mapped_res()
+  custom_mapped$data$fit_ok <- c(TRUE, FALSE, TRUE, TRUE)
+  custom_mapped$data$or_extreme <- c(FALSE, FALSE, FALSE, TRUE)
+  analyzer <- calc_metagene_profile(
+    make_test_analyzer(mapped_res = custom_mapped),
+    keep_fit_ok = TRUE,
+    exclude_or_extreme = TRUE,
+    smooth = FALSE
+  )
+
+  expect_equal(analyzer$profile_data$count, c(1, 0.5))
+})
+
+test_that("calc_metagene_profile errors when filters remove all rows", {
+  expect_error(
+    calc_metagene_profile(
+      make_test_analyzer(),
+      sig_col = "group_p.value",
+      sig_threshold = 1e-8,
+      smooth = FALSE
+    ),
+    "No rows remain after applying metagene profile filters"
+  )
+})
+
 test_that("plot_metagene handles count and weighted count profiles", {
   overall <- calc_metagene_profile(
     make_test_analyzer(),

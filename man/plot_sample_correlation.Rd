@@ -8,6 +8,7 @@ plot_sample_correlation(
   merger,
   sample_names = NULL,
   condition = NULL,
+  use_condition = TRUE,
   show_numbers = FALSE
 )
 }
@@ -19,8 +20,12 @@ merged site `data.frame`.}
 `data.frame`. If `NULL`, sample columns are auto-detected.}
 
 \item{condition}{Optional grouping vector aligned to `sample_names`. When
-supplied (or present in a merger object), condition values are appended to
-sample labels on both heatmap axes.}
+supplied (or present in a merger object), condition values can be shown as
+top and right annotation bands.}
+
+\item{use_condition}{Logical; if `TRUE` (default), draw condition annotation
+bands using either a discrete palette or a continuous gradient, depending
+on the type of `condition`.}
 
 \item{show_numbers}{Logical; if `TRUE`, overlay correlation values on tiles.}
 }

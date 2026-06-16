@@ -358,10 +358,3 @@ NULL
 
   pmax(pred, 0)
 }
-
-
-#' Provide a default when x is NULL
-#' @keywords internal
-`%||%` <- function(x, y) {
-  if (is.null(x)) y else x
-}

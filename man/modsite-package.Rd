@@ -55,6 +55,14 @@ A typical analysis proceeds in six stages:
 }
 }
 
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/Yuanhao-Tang/Modsite}
+  \item Report bugs at \url{https://github.com/Yuanhao-Tang/Modsite/issues}
+}
+
+}
 \author{
 \strong{Maintainer}: Tang YH \email{dumplinghao888@gmail.com}
 
